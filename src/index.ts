@@ -45,7 +45,7 @@ if (process.env.NODE_ENV === 'production') {
 const server = http.createServer(app);
 initWss(server);
 
-server.listen(PORT, () => {
+server.listen(PORT, '0.0.0.0', () => {
   console.log(`[server] listening on http://localhost:${PORT}`);
   console.log(`[server] WebSocket endpoint: ws://localhost:${PORT}/ws`);
   console.log(`[server] API: http://localhost:${PORT}/api/graph`);
