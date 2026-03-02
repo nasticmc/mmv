@@ -39,6 +39,8 @@ export function NetworkGraph({ nodes, edges, selectedId, onSelect }: Props) {
   const simRef = useRef<d3.Simulation<SimNode, SimEdge> | null>(null);
   // Preserve node positions across renders
   const posRef = useRef<Map<string, { x: number; y: number }>>(new Map());
+  // Preserve zoom/pan so data updates don't reset the viewport
+  const zoomTransformRef = useRef<d3.ZoomTransform>(d3.zoomIdentity);
 
   useEffect(() => {
     const container = containerRef.current;
@@ -81,8 +83,12 @@ export function NetworkGraph({ nodes, edges, selectedId, onSelect }: Props) {
     const zoom = d3
       .zoom<SVGSVGElement, unknown>()
       .scaleExtent([0.05, 15])
-      .on('zoom', (e) => zoomG.attr('transform', e.transform.toString()));
+      .on('zoom', (e) => {
+        zoomTransformRef.current = e.transform;
+        zoomG.attr('transform', e.transform.toString());
+      });
     svg.call(zoom);
+    svg.call(zoom.transform, zoomTransformRef.current);
 
     // Click on background deselects
     svg.on('click', () => onSelect(null));
