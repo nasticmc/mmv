@@ -1,0 +1,8 @@
+[mmv]
+mqtt_host = "mqtt.eastmesh.au"
+mqtt_port = 1883
+mqtt_topic = "#"
+mqtt_client_id = "mmv-web"
+# mqtt_username = "your-user"
+# mqtt_password = "your-pass"
+database_path = "mmv.sqlite3"

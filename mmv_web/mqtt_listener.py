@@ -19,6 +19,8 @@ class MQTTIngestor:
         self.database = database
         self.decoder = MeshPacketDecoder()
         self.client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2, client_id=settings.mqtt_client_id)
+        if settings.mqtt_username:
+            self.client.username_pw_set(settings.mqtt_username, settings.mqtt_password)
         self.client.on_connect = self.on_connect
         self.client.on_message = self.on_message
 
