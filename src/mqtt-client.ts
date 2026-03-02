@@ -3,7 +3,7 @@ import { extractHex, processPacket } from './processor.js';
 import { broadcastNode, broadcastEdge, broadcastStats, broadcastPacket, debugLog } from './ws-broadcast.js';
 
 const MQTT_URL = process.env.MQTT_URL ?? 'mqtt://mqtt.eastmesh.au:1883';
-const MQTT_TOPIC = 'meshcore/#';
+const MQTT_TOPIC = 'meshcore/MEL/+/packets';
 
 // Rolling packet counter for stats broadcasts
 let packetCount = 0;
