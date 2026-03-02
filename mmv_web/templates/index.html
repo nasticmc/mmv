@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Mesh Map Viewer</title>
+    <style>
+      body { font-family: Arial, sans-serif; margin: 0; background: #111827; color: #e5e7eb; }
+      header { padding: 1rem 1.25rem; border-bottom: 1px solid #374151; }
+      .meta { color: #9ca3af; font-size: 0.9rem; }
+      main { padding: 1rem 1.25rem; }
+      table { width: 100%; border-collapse: collapse; }
+      th, td { border-bottom: 1px solid #374151; padding: 0.5rem; text-align: left; }
+      .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; }
+      .card { border: 1px solid #374151; border-radius: 0.5rem; padding: 1rem; background: #1f2937; }
+      @media (max-width: 900px) { .grid { grid-template-columns: 1fr; } }
+    </style>
+  </head>
+  <body>
+    <header>
+      <h1>Mesh Map Viewer</h1>
+      <div class="meta">Broker: {{ mqtt_host }} | Topic: {{ mqtt_topic }}</div>
+    </header>
+    <main class="grid">
+      <section class="card">
+        <h2>Nodes</h2>
+        <table>
+          <thead><tr><th>ID</th><th>Name (from adverts)</th></tr></thead>
+          <tbody id="nodes"></tbody>
+        </table>
+      </section>
+      <section class="card">
+        <h2>Observed Links</h2>
+        <table>
+          <thead><tr><th>From</th><th>To</th><th>Observations</th><th>Last Seen</th></tr></thead>
+          <tbody id="edges"></tbody>
+        </table>
+      </section>
+    </main>
+    <script>
+      async function refresh() {
+        const res = await fetch('/api/graph');
+        const data = await res.json();
+
+        const nodesBody = document.getElementById('nodes');
+        nodesBody.innerHTML = data.nodes
+          .map(n => `<tr><td>${n.id}</td><td>${n.name || '-'}</td></tr>`)
+          .join('');
+
+        const edgesBody = document.getElementById('edges');
+        edgesBody.innerHTML = data.edges
+          .map(e => `<tr><td>${e.from}</td><td>${e.to}</td><td>${e.weight}</td><td>${e.last_seen_at}</td></tr>`)
+          .join('');
+      }
+
+      refresh();
+      setInterval(refresh, 5000);
+    </script>
+  </body>
+</html>
