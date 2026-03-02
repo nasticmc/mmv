@@ -40,7 +40,6 @@ export default function App() {
           edges={edges}
           selectedId={selectedId}
           onSelect={setSelectedId}
-          livePackets={recentPackets}
         />
 
         {/* Node detail panel */}

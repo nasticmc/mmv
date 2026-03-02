@@ -1,17 +1,13 @@
 import { MeshCorePacketDecoder } from '@michaelhart/meshcore-decoder';
-import { PayloadType, ControlSubType } from '@michaelhart/meshcore-decoder';
-import type { AdvertPayload, ControlDiscoverRespPayload } from '@michaelhart/meshcore-decoder';
-import { touchNode, touchNodeWithKey, touchEdge, applyAdvert, type NodeRow, type EdgeRow } from './db.js';
-import { debugLog } from './ws-broadcast.js';
+import { PayloadType } from '@michaelhart/meshcore-decoder';
+import type { AdvertPayload } from '@michaelhart/meshcore-decoder';
+import { touchNode, touchEdge, applyAdvert, type NodeRow, type EdgeRow } from './db.js';
 
 export interface ProcessResult {
   nodes: NodeRow[];
   edges: EdgeRow[];
   packetType: string;
   hash: string;
-  /** Ordered list of node hashes for frontend particle animation:
-   *  [advertSrc?, relay0, relay1, …, relayN, observer?] */
-  animPath: string[];
 }
 
 // Packet type enum values from the library
@@ -32,48 +28,30 @@ const PAYLOAD_TYPE_NAMES: Record<number, string> = {
 };
 
 /**
- * Extract hex data from an MQTT message payload.
- *
- * MeshCore brokers publish packets as raw binary bytes.  Previous code called
- * Buffer.toString('utf-8') first which turns binary into garbage and then
- * fails the hex-regex check.  The correct approach is:
- *   1. Raw binary Buffer → hex-encode the bytes directly with toString('hex')
- *   2. String that starts with '{' → try JSON wrapper (some bridges do this)
- *   3. Plain hex string (already encoded)
- *
- * Returns null (with a reason string) when the payload can't be interpreted.
+ * Extract hex data from MQTT message payload.
+ * Handles raw hex strings and simple JSON wrappers.
  */
-export function extractHex(raw: Buffer | string): { hex: string } | { error: string } {
-  // ── 1. Raw binary buffer (the normal MeshCore MQTT case) ──────────────────
-  if (Buffer.isBuffer(raw)) {
-    if (raw.length < 2) return { error: `payload too short (${raw.length}B)` };
-    return { hex: raw.toString('hex') };
-  }
+export function extractHex(raw: Buffer | string): string | null {
+  const str = Buffer.isBuffer(raw) ? raw.toString('utf-8').trim() : String(raw).trim();
 
-  const str = String(raw).trim();
-
-  // ── 2. JSON wrapper ───────────────────────────────────────────────────────
+  // Try JSON first (some bridges wrap in JSON)
   if (str.startsWith('{')) {
     try {
       const obj = JSON.parse(str) as Record<string, unknown>;
-      const candidate = obj.hex ?? obj.data ?? obj.packet ?? obj.payload;
-      if (typeof candidate === 'string') {
-        const h = candidate.trim().replace(/\s+/g, '');
-        if (h.length >= 4) return { hex: h };
-      }
+      const hex = obj.hex ?? obj.data ?? obj.packet ?? obj.payload;
+      if (typeof hex === 'string') return hex.trim().replace(/\s+/g, '');
     } catch {
-      // fall through
+      // fall through to raw hex
     }
-    return { error: `JSON payload missing hex/data/packet/payload field: ${str.slice(0, 60)}` };
   }
 
-  // ── 3. Plain hex string ───────────────────────────────────────────────────
+  // Assume plain hex string
   const cleaned = str.replace(/\s+/g, '');
   if (/^[0-9a-fA-F]+$/.test(cleaned) && cleaned.length >= 4) {
-    return { hex: cleaned };
+    return cleaned;
   }
 
-  return { error: `unrecognised payload format (first 60 chars): ${str.slice(0, 60)}` };
+  return null;
 }
 
 /**
@@ -84,16 +62,11 @@ export function processPacket(hex: string, observerKey?: string): ProcessResult 
   let packet;
   try {
     packet = MeshCorePacketDecoder.decode(hex);
-  } catch (e) {
-    debugLog.warn(`[decode] exception on hex ${hex.slice(0, 16)}…: ${e instanceof Error ? e.message : String(e)}`);
+  } catch {
     return null;
   }
 
-  if (!packet.isValid) {
-    const reasons = packet.errors?.join('; ') ?? 'unknown';
-    debugLog.warn(`[decode] invalid packet ${hex.slice(0, 16)}…: ${reasons}`);
-    return null;
-  }
+  if (!packet.isValid) return null;
 
   const now = Date.now();
   const updatedNodes: NodeRow[] = [];
@@ -101,11 +74,7 @@ export function processPacket(hex: string, observerKey?: string): ProcessResult 
   const packetType = PAYLOAD_TYPE_NAMES[packet.payloadType] ?? String(packet.payloadType);
 
   // --- Process path hashes → nodes + edges ---
-  // Normalise to lowercase: the decoder's byteToHex() returns UPPERCASE (e.g. "AB"),
-  // but applyAdvert() derives hashes via publicKey.slice(0,2).toLowerCase() → "ab".
-  // Without this the same physical node ends up as two separate DB rows and
-  // advert info never lands on the node that was first seen as a path hop.
-  const path = (packet.path ?? []).map(h => h.toLowerCase());
+  const path = packet.path ?? [];
 
   for (const pathHash of path) {
     const node = touchNode(pathHash, now);
@@ -140,38 +109,12 @@ export function processPacket(hex: string, observerKey?: string): ProcessResult 
     }
   }
 
-  // --- Process Control / NodeDiscoverResp payload ---
-  // ControlDiscoverResp carries a node's full public key and device role – treat it
-  // like an advert so repeaters (and other nodes) seen via discovery are saved with
-  // the correct prefix hash and correlated to the visualisation immediately.
-  if (packet.payloadType === (PayloadType.Control as number) && packet.payload.decoded) {
-    const control = packet.payload.decoded as ControlDiscoverRespPayload;
-    if (
-      (control as { subType?: number }).subType === (ControlSubType.NodeDiscoverResp as number) &&
-      control.publicKey
-    ) {
-      const hash = applyAdvert(
-        control.publicKey,
-        null,                       // no display name in discovery response
-        control.nodeType as number,
-        null,
-        now
-      );
-      const node = touchNode(hash, now);
-      if (!updatedNodes.some(n => n.hash === hash)) {
-        updatedNodes.push(node);
-      }
-    }
-  }
-
   // --- Observer node ---
-  // Store the observer's full public key immediately (pre-generation) so the node
-  // appears on the graph before any advert is received, and advert correlation
-  // works correctly via ON CONFLICT(public_key) when the advert arrives later.
-  let observerHash: string | null = null;
+  // If we have the observer's public key (from the MQTT topic), add it as a node
+  // and create an edge from the last path element to the observer (it "heard" the packet)
   if (observerKey && observerKey.length >= 2) {
-    observerHash = observerKey.slice(0, 2).toLowerCase();
-    const observerNode = touchNodeWithKey(observerHash, observerKey.toLowerCase(), now);
+    const observerHash = observerKey.slice(0, 2).toLowerCase();
+    const observerNode = touchNode(observerHash, now);
     if (!updatedNodes.some(n => n.hash === observerHash)) {
       updatedNodes.push(observerNode);
     }
@@ -188,27 +131,10 @@ export function processPacket(hex: string, observerKey?: string): ProcessResult 
     }
   }
 
-  // --- Build animation path ---
-  // For adverts: prepend the advertising node's hash as the packet source.
-  // Then relay hops, then observer. This lets the frontend animate a particle
-  // travelling from source → relays → observer.
-  const animPath: string[] = [];
-  if (packet.payloadType === (PayloadType.Advert as number) && packet.payload.decoded) {
-    const advert = packet.payload.decoded as AdvertPayload;
-    if (advert.isValid && advert.publicKey) {
-      animPath.push(advert.publicKey.slice(0, 2).toLowerCase());
-    }
-  }
-  for (const h of path) animPath.push(h);
-  if (observerHash) animPath.push(observerHash);
-  // Deduplicate consecutive identical hashes
-  const dedupedPath = animPath.filter((h, i) => i === 0 || h !== animPath[i - 1]);
-
   return {
     nodes: updatedNodes,
     edges: updatedEdges,
     packetType,
     hash: packet.messageHash,
-    animPath: dedupedPath,
   };
 }

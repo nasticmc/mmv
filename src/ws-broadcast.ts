@@ -8,7 +8,7 @@ export type WsMessage =
   | { type: 'node'; node: NodeRow }
   | { type: 'edge'; edge: EdgeRow }
   | { type: 'stats'; stats: ReturnType<typeof getStats> }
-  | { type: 'packet'; packetType: string; hash: string; pathLen: number; path: string[] }
+  | { type: 'packet'; packetType: string; hash: string; pathLen: number }
   | { type: 'debug'; level: 'info' | 'warn' | 'error'; message: string; ts: number };
 
 let wss: WebSocketServer | null = null;
@@ -52,8 +52,8 @@ export function broadcastStats(): void {
   broadcast({ type: 'stats', stats: getStats() });
 }
 
-export function broadcastPacket(packetType: string, hash: string, path: string[]): void {
-  broadcast({ type: 'packet', packetType, hash, pathLen: path.length, path });
+export function broadcastPacket(packetType: string, hash: string, pathLen: number): void {
+  broadcast({ type: 'packet', packetType, hash, pathLen });
 }
 
 export function broadcastDebug(level: 'info' | 'warn' | 'error', message: string): void {

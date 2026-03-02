@@ -85,20 +85,6 @@ const upsertNode = db.prepare(`
     packet_count = packet_count + 1
 `);
 
-// Pre-generate an observer node from a known full public key (no name or role yet)
-const upsertNodeObserver = db.prepare(`
-  INSERT INTO nodes (hash, public_key, first_seen, last_seen, packet_count)
-  VALUES (?, ?, ?, ?, 1)
-  ON CONFLICT(hash) DO UPDATE SET
-    public_key   = COALESCE(public_key, excluded.public_key),
-    last_seen    = excluded.last_seen,
-    packet_count = packet_count + 1
-  ON CONFLICT(public_key) DO UPDATE SET
-    last_seen    = excluded.last_seen,
-    packet_count = packet_count + 1
-`);
-
-
 const updateNodeFromAdvert = db.prepare(`
   UPDATE nodes SET name = ?, device_role = ?, public_key = ?
   WHERE hash = ?
@@ -149,15 +135,6 @@ export function touchNode(hash: string, now: number): NodeRow {
   upsertNode.run(hash, now, now);
   return getNode.get(hash) as unknown as NodeRow;
 }
-
-/** Pre-generate a node for a known observer public key so it appears on the graph
- *  before any advert arrives.  The full pubkey is stored so advert correlation works
- *  correctly via the ON CONFLICT(public_key) path in upsertNodeWithKey. */
-export function touchNodeWithKey(hash: string, publicKey: string, now: number): NodeRow {
-  upsertNodeObserver.run(hash, publicKey, now, now);
-  return getNode.get(hash) as unknown as NodeRow;
-}
-
 
 export function touchEdge(fromHash: string, toHash: string, now: number): EdgeRow {
   upsertEdge.run(fromHash, toHash, now, now);
