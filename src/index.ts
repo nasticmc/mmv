@@ -4,7 +4,7 @@ import path from 'path';
 import express from 'express';
 import cors from 'cors';
 import { getAllNodes, getAllEdges, getStats } from './db.js';
-import { initWss } from './ws-broadcast.js';
+import { initWss, debugLog } from './ws-broadcast.js';
 import { startMqtt, stopMqtt } from './mqtt-client.js';
 
 const PORT = parseInt(process.env.PORT ?? '3001', 10);
@@ -46,9 +46,9 @@ const server = http.createServer(app);
 initWss(server);
 
 server.listen(PORT, '0.0.0.0', () => {
-  console.log(`[server] listening on http://localhost:${PORT}`);
-  console.log(`[server] WebSocket endpoint: ws://localhost:${PORT}/ws`);
-  console.log(`[server] API: http://localhost:${PORT}/api/graph`);
+  debugLog.info(`[server] listening on http://0.0.0.0:${PORT}`);
+  debugLog.info(`[server] WebSocket endpoint: ws://0.0.0.0:${PORT}/ws`);
+  debugLog.info(`[server] API: http://0.0.0.0:${PORT}/api/graph`);
 });
 
 const mqttClient = startMqtt();

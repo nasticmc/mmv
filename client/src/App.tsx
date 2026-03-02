@@ -3,6 +3,7 @@ import { NetworkGraph } from './components/NetworkGraph';
 import { NodePanel } from './components/NodePanel';
 import { StatsBar } from './components/StatsBar';
 import { PacketLog } from './components/PacketLog';
+import { DebugPanel } from './components/DebugPanel';
 import { useWebSocket } from './hooks/useWebSocket';
 import type { NodeData } from './types';
 
@@ -12,8 +13,9 @@ const WS_URL = isDev
   : `ws://${window.location.host}/ws`;
 
 export default function App() {
-  const { nodes, edges, stats, recentPackets, connected } = useWebSocket(WS_URL);
+  const { nodes, edges, stats, recentPackets, debugLogs, connected } = useWebSocket(WS_URL);
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [showDebug, setShowDebug] = useState(false);
 
   // Compute packet rate from recent packets
   const rateRef = useRef<number>(0);
@@ -52,6 +54,23 @@ export default function App() {
 
       {/* Packet log */}
       <PacketLog packets={recentPackets} />
+
+      {/* Debug toggle button */}
+      <button
+        onClick={() => setShowDebug(v => !v)}
+        className={`fixed bottom-4 right-4 z-40 px-3 py-1.5 rounded text-xs font-mono font-semibold shadow-lg transition-colors ${
+          showDebug
+            ? 'bg-indigo-600 hover:bg-indigo-500 text-white'
+            : 'bg-gray-800 hover:bg-gray-700 text-gray-300 border border-gray-600'
+        }`}
+      >
+        {showDebug ? 'Hide Debug' : 'Debug'}
+      </button>
+
+      {/* Debug panel */}
+      {showDebug && (
+        <DebugPanel logs={debugLogs} onClose={() => setShowDebug(false)} />
+      )}
 
       {/* Empty state */}
       {nodes.length === 0 && (

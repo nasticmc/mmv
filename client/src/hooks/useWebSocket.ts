@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
-import type { NodeData, EdgeData, StatsData, WsMessage, PacketEvent } from '../types';
+import type { NodeData, EdgeData, StatsData, WsMessage, PacketEvent, DebugLogEntry } from '../types';
 
 interface GraphState {
   nodes: NodeData[];
@@ -11,6 +11,7 @@ interface UseWebSocketResult {
   edges: EdgeData[];
   stats: StatsData;
   recentPackets: PacketEvent[];
+  debugLogs: DebugLogEntry[];
   connected: boolean;
   mqttStatus: 'unknown' | 'connected' | 'disconnected';
 }
@@ -44,6 +45,7 @@ export function useWebSocket(url: string): UseWebSocketResult {
   const [graph, setGraph] = useState<GraphState>({ nodes: [], edges: [] });
   const [stats, setStats] = useState<StatsData>(DEFAULT_STATS);
   const [recentPackets, setRecentPackets] = useState<PacketEvent[]>([]);
+  const [debugLogs, setDebugLogs] = useState<DebugLogEntry[]>([]);
   const [connected, setConnected] = useState(false);
   const wsRef = useRef<WebSocket | null>(null);
   const reconnectTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -103,6 +105,13 @@ export function useWebSocket(url: string): UseWebSocketResult {
             return [entry, ...prev].slice(0, 50);
           });
           break;
+
+        case 'debug':
+          setDebugLogs(prev => {
+            const entry: DebugLogEntry = { level: msg.level, message: msg.message, ts: msg.ts };
+            return [entry, ...prev].slice(0, 200);
+          });
+          break;
       }
     };
   }, [url]);
@@ -120,6 +129,7 @@ export function useWebSocket(url: string): UseWebSocketResult {
     edges: graph.edges,
     stats,
     recentPackets,
+    debugLogs,
     connected,
     mqttStatus: 'unknown',
   };
