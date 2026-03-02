@@ -57,10 +57,17 @@ export const ROLE_COLORS: Record<number, string> = {
   4: '#22c55e', // green   - Sensor
 };
 
+export interface DebugLogEntry {
+  level: 'info' | 'warn' | 'error';
+  message: string;
+  ts: number;
+}
+
 // WebSocket message union type
 export type WsMessage =
   | { type: 'init'; nodes: NodeData[]; edges: EdgeData[]; stats: StatsData }
   | { type: 'node'; node: NodeData }
   | { type: 'edge'; edge: EdgeData }
   | { type: 'stats'; stats: StatsData }
-  | { type: 'packet'; packetType: string; hash: string; pathLen: number };
+  | { type: 'packet'; packetType: string; hash: string; pathLen: number }
+  | { type: 'debug'; level: 'info' | 'warn' | 'error'; message: string; ts: number };

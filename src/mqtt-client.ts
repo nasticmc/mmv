@@ -1,9 +1,9 @@
 import mqtt from 'mqtt';
 import { extractHex, processPacket } from './processor.js';
-import { broadcastNode, broadcastEdge, broadcastStats, broadcastPacket } from './ws-broadcast.js';
+import { broadcastNode, broadcastEdge, broadcastStats, broadcastPacket, debugLog } from './ws-broadcast.js';
 
 const MQTT_URL = process.env.MQTT_URL ?? 'mqtt://mqtt.eastmesh.au:1883';
-const MQTT_TOPIC = 'meshcore/+/+/packets';
+const MQTT_TOPIC = 'meshcore/#';
 
 // Rolling packet counter for stats broadcasts
 let packetCount = 0;
@@ -23,21 +23,22 @@ export function startMqtt(): mqtt.MqttClient {
   const client = mqtt.connect(MQTT_URL, options);
 
   client.on('connect', () => {
-    console.log(`[mqtt] connected to ${MQTT_URL}`);
+    debugLog.info(`[mqtt] connected to ${MQTT_URL}`);
     client.subscribe(MQTT_TOPIC, (err) => {
       if (err) {
-        console.error('[mqtt] subscribe error:', err.message);
+        debugLog.error(`[mqtt] subscribe error: ${err.message}`);
       } else {
-        console.log(`[mqtt] subscribed to ${MQTT_TOPIC}`);
+        debugLog.info(`[mqtt] subscribed to ${MQTT_TOPIC}`);
       }
     });
   });
 
-  client.on('reconnect', () => console.log('[mqtt] reconnecting…'));
-  client.on('offline', () => console.warn('[mqtt] offline'));
-  client.on('error', (err) => console.error('[mqtt] error:', err.message));
+  client.on('reconnect', () => debugLog.info('[mqtt] reconnecting…'));
+  client.on('offline', () => debugLog.warn('[mqtt] offline'));
+  client.on('error', (err) => debugLog.error(`[mqtt] error: ${err.message}`));
 
   client.on('message', (topic, payload) => {
+    debugLog.info(`[mqtt] message on ${topic} (${payload.length} bytes)`);
     // Extract observer's public key from topic: meshcore/{IATA}/{PUBKEY}/packets
     const parts = topic.split('/');
     const observerKey = parts[2] ?? undefined;
