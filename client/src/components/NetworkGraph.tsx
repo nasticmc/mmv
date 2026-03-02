@@ -1,6 +1,6 @@
 import { useEffect, useRef } from 'react';
 import * as d3 from 'd3';
-import type { NodeData, EdgeData } from '../types';
+import type { NodeData, EdgeData, PacketEvent } from '../types';
 import { ROLE_COLORS } from '../types';
 
 interface Props {
@@ -8,6 +8,7 @@ interface Props {
   edges: EdgeData[];
   selectedId: string | null;
   onSelect: (id: string | null) => void;
+  livePackets: PacketEvent[];
 }
 
 // D3 simulation node (extends NodeData with layout props)
@@ -34,11 +35,32 @@ function edgeWidth(e: EdgeData): number {
   return Math.max(1, Math.min(e.packet_count / 8, 6));
 }
 
-export function NetworkGraph({ nodes, edges, selectedId, onSelect }: Props) {
+function diamondPath(r: number): string {
+  return `M0,${-r} L${r},0 L0,${r} L${-r},0 Z`;
+}
+
+// Colours for animated particles, keyed by packet type
+const PACKET_ANIM_COLORS: Record<string, string> = {
+  Advert:      '#34d399',
+  Trace:       '#fbbf24',
+  GroupText:   '#c084fc',
+  TextMessage: '#60a5fa',
+  Path:        '#22d3ee',
+  Ack:         '#9ca3af',
+  Control:     '#fb923c',
+  Request:     '#f472b6',
+  Response:    '#fb7185',
+};
+
+export function NetworkGraph({ nodes, edges, selectedId, onSelect, livePackets }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   const simRef = useRef<d3.Simulation<SimNode, SimEdge> | null>(null);
   // Preserve node positions across renders
   const posRef = useRef<Map<string, { x: number; y: number }>>(new Map());
+  // Ref to the zoomable group so the animation effect can append particles
+  const zoomGRef = useRef<d3.Selection<SVGGElement, unknown, null, undefined> | null>(null);
+  // Track which packets have already been animated
+  const lastAnimatedAtRef = useRef<number>(0);
 
   useEffect(() => {
     const container = containerRef.current;
@@ -78,6 +100,7 @@ export function NetworkGraph({ nodes, edges, selectedId, onSelect }: Props) {
 
     // Zoom / pan
     const zoomG = svg.append('g');
+    zoomGRef.current = zoomG;
     const zoom = d3
       .zoom<SVGSVGElement, unknown>()
       .scaleExtent([0.05, 15])
@@ -170,17 +193,12 @@ export function NetworkGraph({ nodes, edges, selectedId, onSelect }: Props) {
         onSelect(d.hash);
       });
 
-    // Helper: diamond path for GroupChannel nodes
-    function diamondPath(r: number): string {
-      return `M0,${-r} L${r},0 L0,${r} L${-r},0 Z`;
-    }
-
-    // Glow ring (circle for regular nodes, diamond outline for group channels)
+    // Glow ring: diamond outline for ChatNode, circle for all others
     node.each(function(d) {
       const g = d3.select(this);
       const r = nodeRadius(d) + 6;
       const glowColor = d.hash === selectedId ? '#fbbf24' : 'none';
-      if (d.device_role === 5) {
+      if (d.device_role === 1) {
         g.append('path')
           .attr('class', 'glow')
           .attr('d', diamondPath(r))
@@ -199,20 +217,18 @@ export function NetworkGraph({ nodes, edges, selectedId, onSelect }: Props) {
       }
     });
 
-    // Main shape: diamond for GroupChannel, circle for all others
+    // Main shape: diamond for ChatNode, circle for all others
     node.each(function(d) {
       const g = d3.select(this);
       const color = ROLE_COLORS[d.device_role] ?? ROLE_COLORS[0];
       const strokeColor = d.hash === selectedId ? '#fbbf24' : '#1f2937';
       const strokeWidth = d.hash === selectedId ? 2.5 : 1.5;
-      if (d.device_role === 5) {
+      if (d.device_role === 1) {
         g.append('path')
           .attr('d', diamondPath(nodeRadius(d)))
           .attr('fill', color)
-          .attr('fill-opacity', 0.75)
           .attr('stroke', strokeColor)
-          .attr('stroke-width', strokeWidth)
-          .attr('stroke-dasharray', '3,2');
+          .attr('stroke-width', strokeWidth);
       } else {
         g.append('circle')
           .attr('r', nodeRadius(d))
@@ -222,23 +238,19 @@ export function NetworkGraph({ nodes, edges, selectedId, onSelect }: Props) {
       }
     });
 
-    // Label: group channels prefix with "ch:"
+    // Label
     node
       .append('text')
-      .text((d) =>
-        d.device_role === 5
-          ? `ch:${d.hash.toUpperCase()}`
-          : (d.name ?? d.hash.toUpperCase())
-      )
+      .text((d) => d.name ?? d.hash.toUpperCase())
       .attr('dy', (d) => -(nodeRadius(d) + 6))
       .attr('text-anchor', 'middle')
-      .attr('fill', (d) => d.device_role === 5 ? '#c084fc' : '#9ca3af')
+      .attr('fill', '#9ca3af')
       .attr('font-size', '11px')
       .attr('font-family', 'monospace')
       .style('pointer-events', 'none')
       .style('user-select', 'none');
 
-    // Packet count badge (small circle + number) for active nodes
+    // Packet count badge
     node
       .filter((d) => d.packet_count > 0)
       .append('text')
@@ -270,6 +282,57 @@ export function NetworkGraph({ nodes, edges, selectedId, onSelect }: Props) {
 
     return () => { sim.stop(); };
   }, [nodes, edges, selectedId, onSelect]);
+
+  // --- Packet animation effect ---
+  // Fires whenever new packets arrive; spawns coloured particles that travel
+  // along the path hashes and fade out, giving a live "packet flow" feel.
+  useEffect(() => {
+    if (!livePackets.length) return;
+
+    // Find packets not yet animated
+    const newPackets = livePackets.filter(p => p.receivedAt > lastAnimatedAtRef.current);
+    if (!newPackets.length) return;
+    lastAnimatedAtRef.current = Math.max(...newPackets.map(p => p.receivedAt));
+
+    const zoomG = zoomGRef.current;
+    if (!zoomG) return;
+
+    // Limit particle bursts to avoid visual spam on high-traffic meshes
+    for (const pkt of newPackets.slice(0, 6)) {
+      const path = pkt.path;
+      if (path.length < 2) continue;
+
+      const color = PACKET_ANIM_COLORS[pkt.packetType] ?? '#e5e7eb';
+
+      for (let i = 0; i < path.length - 1; i++) {
+        const from = posRef.current.get(path[i]);
+        const to   = posRef.current.get(path[i + 1]);
+        if (!from || !to) continue;
+
+        const hopDelay = i * 320; // stagger each hop so particle chains visibly
+
+        zoomG.append('circle')
+          .attr('r', 4.5)
+          .attr('fill', color)
+          .attr('opacity', 0)
+          .attr('cx', from.x)
+          .attr('cy', from.y)
+          .attr('pointer-events', 'none')
+          .transition()
+            .delay(hopDelay)
+            .duration(80)
+            .attr('opacity', 0.9)
+          .transition()
+            .duration(340)
+            .attr('cx', to.x)
+            .attr('cy', to.y)
+          .transition()
+            .duration(160)
+            .attr('opacity', 0)
+            .remove();
+      }
+    }
+  }, [livePackets]);
 
   // Handle container resize
   useEffect(() => {

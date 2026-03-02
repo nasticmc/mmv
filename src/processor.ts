@@ -1,13 +1,16 @@
 import { MeshCorePacketDecoder } from '@michaelhart/meshcore-decoder';
 import { PayloadType, ControlSubType } from '@michaelhart/meshcore-decoder';
-import type { AdvertPayload, GroupTextPayload, ControlDiscoverRespPayload } from '@michaelhart/meshcore-decoder';
-import { touchNode, touchNodeWithKey, touchGroupChannel, touchEdge, applyAdvert, type NodeRow, type EdgeRow } from './db.js';
+import type { AdvertPayload, ControlDiscoverRespPayload } from '@michaelhart/meshcore-decoder';
+import { touchNode, touchNodeWithKey, touchEdge, applyAdvert, type NodeRow, type EdgeRow } from './db.js';
 
 export interface ProcessResult {
   nodes: NodeRow[];
   edges: EdgeRow[];
   packetType: string;
   hash: string;
+  /** Ordered list of node hashes for frontend particle animation:
+   *  [advertSrc?, relay0, relay1, …, relayN, observer?] */
+  animPath: string[];
 }
 
 // Packet type enum values from the library
@@ -109,33 +112,6 @@ export function processPacket(hex: string, observerKey?: string): ProcessResult 
     }
   }
 
-  // --- Process GroupText payload ---
-  // Use the channel hash as a virtual "group channel" node (device_role 5) and
-  // wire it as the first hop before the relay path, so group text traffic
-  // appears as an originating source in the mesh visualisation.
-  if (packet.payloadType === (PayloadType.GroupText as number) && packet.payload.decoded) {
-    const groupText = packet.payload.decoded as GroupTextPayload;
-    if (groupText.isValid && groupText.channelHash) {
-      const chHash = groupText.channelHash.toLowerCase();
-      const chNode = touchGroupChannel(chHash, now);
-      if (!updatedNodes.some(n => n.hash === chHash)) {
-        updatedNodes.push(chNode);
-      }
-
-      // Wire group channel → first relay hop (or → observer when path is empty)
-      const observerHash = observerKey && observerKey.length >= 2
-        ? observerKey.slice(0, 2).toLowerCase()
-        : null;
-      const targetHash = path.length > 0 ? path[0] : observerHash;
-      if (targetHash && targetHash !== chHash) {
-        const edge = touchEdge(chHash, targetHash, now);
-        if (!updatedEdges.some(e => e.from_hash === edge.from_hash && e.to_hash === edge.to_hash)) {
-          updatedEdges.push(edge);
-        }
-      }
-    }
-  }
-
   // --- Process Control / NodeDiscoverResp payload ---
   // ControlDiscoverResp carries a node's full public key and device role – treat it
   // like an advert so repeaters (and other nodes) seen via discovery are saved with
@@ -164,8 +140,9 @@ export function processPacket(hex: string, observerKey?: string): ProcessResult 
   // Store the observer's full public key immediately (pre-generation) so the node
   // appears on the graph before any advert is received, and advert correlation
   // works correctly via ON CONFLICT(public_key) when the advert arrives later.
+  let observerHash: string | null = null;
   if (observerKey && observerKey.length >= 2) {
-    const observerHash = observerKey.slice(0, 2).toLowerCase();
+    observerHash = observerKey.slice(0, 2).toLowerCase();
     const observerNode = touchNodeWithKey(observerHash, observerKey.toLowerCase(), now);
     if (!updatedNodes.some(n => n.hash === observerHash)) {
       updatedNodes.push(observerNode);
@@ -183,10 +160,27 @@ export function processPacket(hex: string, observerKey?: string): ProcessResult 
     }
   }
 
+  // --- Build animation path ---
+  // For adverts: prepend the advertising node's hash as the packet source.
+  // Then relay hops, then observer. This lets the frontend animate a particle
+  // travelling from source → relays → observer.
+  const animPath: string[] = [];
+  if (packet.payloadType === (PayloadType.Advert as number) && packet.payload.decoded) {
+    const advert = packet.payload.decoded as AdvertPayload;
+    if (advert.isValid && advert.publicKey) {
+      animPath.push(advert.publicKey.slice(0, 2).toLowerCase());
+    }
+  }
+  for (const h of path) animPath.push(h);
+  if (observerHash) animPath.push(observerHash);
+  // Deduplicate consecutive identical hashes
+  const dedupedPath = animPath.filter((h, i) => i === 0 || h !== animPath[i - 1]);
+
   return {
     nodes: updatedNodes,
     edges: updatedEdges,
     packetType,
     hash: packet.messageHash,
+    animPath: dedupedPath,
   };
 }

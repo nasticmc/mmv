@@ -100,6 +100,7 @@ export function useWebSocket(url: string): UseWebSocketResult {
               packetType: msg.packetType,
               hash: msg.hash,
               pathLen: msg.pathLen,
+              path: msg.path ?? [],
               receivedAt: Date.now(),
             };
             return [entry, ...prev].slice(0, 50);

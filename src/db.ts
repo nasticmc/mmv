@@ -98,15 +98,6 @@ const upsertNodeObserver = db.prepare(`
     packet_count = packet_count + 1
 `);
 
-// Touch a group-channel virtual node (device_role=5); preserves a real role if already known
-const upsertGroupChannel = db.prepare(`
-  INSERT INTO nodes (hash, device_role, first_seen, last_seen, packet_count)
-  VALUES (?, 5, ?, ?, 1)
-  ON CONFLICT(hash) DO UPDATE SET
-    device_role  = CASE WHEN device_role = 0 OR device_role = 5 THEN 5 ELSE device_role END,
-    last_seen    = excluded.last_seen,
-    packet_count = packet_count + 1
-`);
 
 const updateNodeFromAdvert = db.prepare(`
   UPDATE nodes SET name = ?, device_role = ?, public_key = ?
@@ -167,11 +158,6 @@ export function touchNodeWithKey(hash: string, publicKey: string, now: number): 
   return getNode.get(hash) as unknown as NodeRow;
 }
 
-/** Create or refresh a virtual group-channel node (device_role 5). */
-export function touchGroupChannel(channelHash: string, now: number): NodeRow {
-  upsertGroupChannel.run(channelHash, now, now);
-  return getNode.get(channelHash) as unknown as NodeRow;
-}
 
 export function touchEdge(fromHash: string, toHash: string, now: number): EdgeRow {
   upsertEdge.run(fromHash, toHash, now, now);

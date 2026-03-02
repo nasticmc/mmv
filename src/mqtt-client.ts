@@ -54,7 +54,7 @@ export function startMqtt(): mqtt.MqttClient {
     // Broadcast topology updates
     for (const node of result.nodes) broadcastNode(node);
     for (const edge of result.edges) broadcastEdge(edge);
-    broadcastPacket(result.packetType, result.hash, result.edges.length);
+    broadcastPacket(result.packetType, result.hash, result.animPath);
   });
 
   // Broadcast stats every 5 seconds
