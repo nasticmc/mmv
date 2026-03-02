@@ -2,6 +2,7 @@ import { MeshCorePacketDecoder } from '@michaelhart/meshcore-decoder';
 import { PayloadType } from '@michaelhart/meshcore-decoder';
 import type { AdvertPayload } from '@michaelhart/meshcore-decoder';
 import { touchNode, touchEdge, applyAdvert, type NodeRow, type EdgeRow } from './db.js';
+import { hashFromKeyPrefix } from './hash-utils.js';
 
 export interface ProcessResult {
   nodes: NodeRow[];
@@ -112,8 +113,8 @@ export function processPacket(hex: string, observerKey?: string): ProcessResult 
   // --- Observer node ---
   // If we have the observer's public key (from the MQTT topic), add it as a node
   // and create an edge from the last path element to the observer (it "heard" the packet)
-  if (observerKey && observerKey.length >= 2) {
-    const observerHash = observerKey.slice(0, 2).toLowerCase();
+  const observerHash = observerKey ? hashFromKeyPrefix(observerKey) : null;
+  if (observerHash) {
     const observerNode = touchNode(observerHash, now);
     if (!updatedNodes.some(n => n.hash === observerHash)) {
       updatedNodes.push(observerNode);

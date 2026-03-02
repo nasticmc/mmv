@@ -1,6 +1,7 @@
 import { DatabaseSync } from 'node:sqlite';
 import path from 'path';
 import fs from 'fs';
+import { hashFromKeyPrefix } from './hash-utils.js';
 
 const DB_PATH = process.env.DB_PATH ?? './data/mmv.db';
 
@@ -132,13 +133,16 @@ const getNode = db.prepare(`SELECT * FROM nodes WHERE hash = ?`);
 const getEdge = db.prepare(`SELECT * FROM edges WHERE from_hash = ? AND to_hash = ?`);
 
 export function touchNode(hash: string, now: number): NodeRow {
-  upsertNode.run(hash, now, now);
-  return getNode.get(hash) as unknown as NodeRow;
+  const normalizedHash = hash.toLowerCase();
+  upsertNode.run(normalizedHash, now, now);
+  return getNode.get(normalizedHash) as unknown as NodeRow;
 }
 
 export function touchEdge(fromHash: string, toHash: string, now: number): EdgeRow {
-  upsertEdge.run(fromHash, toHash, now, now);
-  return getEdge.get(fromHash, toHash) as unknown as EdgeRow;
+  const from = fromHash.toLowerCase();
+  const to = toHash.toLowerCase();
+  upsertEdge.run(from, to, now, now);
+  return getEdge.get(from, to) as unknown as EdgeRow;
 }
 
 export function applyAdvert(
@@ -150,7 +154,8 @@ export function applyAdvert(
   location?: { latitude: number; longitude: number }
 ): string {
   // The 1-byte path hash = first byte of the public key
-  const hash = publicKey.slice(0, 2).toLowerCase();
+  const hash = hashFromKeyPrefix(publicKey);
+  if (!hash) throw new Error('Invalid advert public key: unable to derive 1-byte hash prefix');
 
   upsertNodeWithKey.run(hash, publicKey, name, deviceRole, now, now);
   insertAdvert.run(publicKey, name, deviceRole, timestamp, now);

@@ -77,5 +77,6 @@ When an `Advert` packet is seen, its full public key + name is linked to the mat
 | `MQTT_USERNAME` | — | Optional auth |
 | `MQTT_PASSWORD` | — | Optional auth |
 | `MQTT_CLIENT_ID` | `mmv-<random>` | Client ID |
+| `MQTT_OBSERVERS` | — | Optional comma-separated observer public keys/prefixes to pre-populate as nodes at MQTT connect (e.g. `0xA1B2...,7E76...`) |
 | `PORT` | `3001` | HTTP/WS server port |
 | `DB_PATH` | `./data/mmv.db` | SQLite file path |

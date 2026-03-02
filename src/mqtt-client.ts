@@ -1,6 +1,8 @@
 import mqtt from 'mqtt';
 import { extractHex, processPacket } from './processor.js';
 import { broadcastNode, broadcastEdge, broadcastStats, broadcastPacket, debugLog } from './ws-broadcast.js';
+import { touchNode } from './db.js';
+import { hashFromKeyPrefix } from './hash-utils.js';
 
 const MQTT_URL = process.env.MQTT_URL ?? 'mqtt://mqtt.eastmesh.au:1883';
 const MQTT_TOPIC = 'meshcore/#';
@@ -8,6 +10,29 @@ const MQTT_TOPIC = 'meshcore/#';
 // Rolling packet counter for stats broadcasts
 let packetCount = 0;
 let statsTimer: ReturnType<typeof setInterval> | null = null;
+
+
+function prepopulateObserverNodes(): void {
+  const configured = (process.env.MQTT_OBSERVERS ?? '')
+    .split(',')
+    .map((v) => v.trim())
+    .filter(Boolean);
+
+  if (configured.length === 0) return;
+
+  const now = Date.now();
+  for (const key of configured) {
+    const hash = hashFromKeyPrefix(key);
+    if (!hash) {
+      debugLog.warn(`[mqtt] skipping invalid observer key in MQTT_OBSERVERS: ${key}`);
+      continue;
+    }
+    const node = touchNode(hash, now);
+    broadcastNode(node);
+  }
+
+  debugLog.info(`[mqtt] pre-populated ${configured.length} observer node(s) from MQTT_OBSERVERS`);
+}
 
 export function startMqtt(): mqtt.MqttClient {
   const options: mqtt.IClientOptions = {
@@ -24,6 +49,7 @@ export function startMqtt(): mqtt.MqttClient {
 
   client.on('connect', () => {
     debugLog.info(`[mqtt] connected to ${MQTT_URL}`);
+    prepopulateObserverNodes();
     client.subscribe(MQTT_TOPIC, (err) => {
       if (err) {
         debugLog.error(`[mqtt] subscribe error: ${err.message}`);
@@ -42,6 +68,12 @@ export function startMqtt(): mqtt.MqttClient {
     // Extract observer's public key from topic: meshcore/{IATA}/{PUBKEY}/packets
     const parts = topic.split('/');
     const observerKey = parts[2] ?? undefined;
+
+    const observerHash = observerKey ? hashFromKeyPrefix(observerKey) : null;
+    if (observerHash) {
+      const observerNode = touchNode(observerHash, Date.now());
+      broadcastNode(observerNode);
+    }
 
     const hex = extractHex(payload);
     if (!hex) return;
