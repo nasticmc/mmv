@@ -21,7 +21,7 @@ const DEFAULT_GRAPH_SETTINGS: GraphSettings = {
   chargeStrength: -350,
   showLabels: true,
   showPacketBadges: true,
-  mode: '2d',
+  mode: '3d',
 };
 
 export default function App() {

@@ -1,12 +1,11 @@
 import mqtt from 'mqtt';
-import { extractHex, processPacket, processDecodedPacket } from './processor.js';
+import { extractHex, processPacket } from './processor.js';
 import { broadcastNode, broadcastEdge, broadcastStats, broadcastPacket, debugLog } from './ws-broadcast.js';
 import { touchNode } from './db.js';
 import { hashFromKeyPrefix } from './hash-utils.js';
 
 const MQTT_URL = process.env.MQTT_URL ?? 'mqtt://mqtt.eastmesh.au:1883';
 const MQTT_RAW_TOPIC = process.env.MQTT_RAW_TOPIC ?? 'meshcore/+/+/raw';
-const MQTT_PACKETS_TOPIC = process.env.MQTT_PACKETS_TOPIC ?? 'meshcore/+/+/packets';
 
 let packetCount = 0;
 let statsTimer: ReturnType<typeof setInterval> | null = null;
@@ -50,15 +49,13 @@ export function startMqtt(): mqtt.MqttClient {
     debugLog.info(`[mqtt] connected to ${MQTT_URL}`);
     prepopulateObserverNodes();
 
-    for (const topic of new Set([MQTT_RAW_TOPIC, MQTT_PACKETS_TOPIC])) {
-      client.subscribe(topic, (err) => {
-        if (err) {
-          debugLog.error(`[mqtt] subscribe error (${topic}): ${err.message}`);
-        } else {
-          debugLog.info(`[mqtt] subscribed to ${topic}`);
-        }
-      });
-    }
+    client.subscribe(MQTT_RAW_TOPIC, (err) => {
+      if (err) {
+        debugLog.error(`[mqtt] subscribe error (${MQTT_RAW_TOPIC}): ${err.message}`);
+      } else {
+        debugLog.info(`[mqtt] subscribed to ${MQTT_RAW_TOPIC}`);
+      }
+    });
   });
 
   client.on('reconnect', () => debugLog.info('[mqtt] reconnecting…'));
@@ -84,8 +81,6 @@ export function startMqtt(): mqtt.MqttClient {
       const hex = extractHex(payload);
       if (!hex) return;
       result = processPacket(hex, observerKey);
-    } else if (streamType === 'packets') {
-      result = processDecodedPacket(payload, observerKey);
     } else {
       debugLog.info(`[mqtt] skipping unsupported stream: ${topic}`);
       return;

@@ -67,20 +67,6 @@ export function NetworkGraph({ nodes, edges, selectedId, onSelect, settings }: P
       .attr('height', H)
       .style('background', '#030712');
 
-    svg
-      .append('defs')
-      .append('marker')
-      .attr('id', 'arrow')
-      .attr('viewBox', '0 -4 8 8')
-      .attr('refX', 18)
-      .attr('refY', 0)
-      .attr('markerWidth', 6)
-      .attr('markerHeight', 6)
-      .attr('orient', 'auto')
-      .append('path')
-      .attr('d', 'M0,-4L8,0L0,4')
-      .attr('fill', '#2563eb');
-
     const zoomG = svg.append('g');
     zoomGRef.current = zoomG;
 
@@ -169,8 +155,7 @@ export function NetworkGraph({ nodes, edges, selectedId, onSelect, settings }: P
       .join('line')
       .attr('stroke', '#2563eb')
       .attr('stroke-opacity', 0.7)
-      .attr('stroke-width', (d) => edgeWidth(d))
-      .attr('marker-end', 'url(#arrow)');
+      .attr('stroke-width', (d) => edgeWidth(d));
 
     const nodeLayer = zoomG.select<SVGGElement>('g.nodes');
     const nodeSelection = nodeLayer
@@ -243,7 +228,7 @@ export function NetworkGraph({ nodes, edges, selectedId, onSelect, settings }: P
     nodeRef.current?.select<SVGTextElement>('text.badge')
       .text((d) => (settings.showPacketBadges && d.packet_count > 0 ? d.packet_count : ''))
       .attr('dy', nodeRadius(settings) + 14);
-  }, [selectedId, settings]);
+  }, [nodes, selectedId, settings]);
 
   return <div ref={containerRef} className="flex-1 relative overflow-hidden" style={{ minHeight: 0 }} />;
 }

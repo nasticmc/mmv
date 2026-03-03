@@ -91,8 +91,6 @@ export function NetworkGraph3D({ nodes, edges, selectedId, onSelect, settings }:
           linkWidth={(link) => (link as GraphLink).width}
           linkColor={() => '#2563eb'}
           linkOpacity={0.55}
-          linkDirectionalArrowLength={3.5}
-          linkDirectionalArrowRelPos={1}
           onNodeClick={(node) => {
             const graphNode = node as GraphNode;
             onSelect(graphNode.hash);
