@@ -1,16 +1,15 @@
 import mqtt from 'mqtt';
-import { extractHex, processPacket } from './processor.js';
+import { extractHex, processPacket, processDecodedPacket } from './processor.js';
 import { broadcastNode, broadcastEdge, broadcastStats, broadcastPacket, debugLog } from './ws-broadcast.js';
 import { touchNode } from './db.js';
 import { hashFromKeyPrefix } from './hash-utils.js';
 
 const MQTT_URL = process.env.MQTT_URL ?? 'mqtt://mqtt.eastmesh.au:1883';
-const MQTT_TOPIC = 'meshcore/MEL/+/raw';
+const MQTT_RAW_TOPIC = process.env.MQTT_RAW_TOPIC ?? 'meshcore/+/+/raw';
+const MQTT_PACKETS_TOPIC = process.env.MQTT_PACKETS_TOPIC ?? 'meshcore/+/+/packets';
 
-// Rolling packet counter for stats broadcasts
 let packetCount = 0;
 let statsTimer: ReturnType<typeof setInterval> | null = null;
-
 
 function prepopulateObserverNodes(): void {
   const configured = (process.env.MQTT_OBSERVERS ?? '')
@@ -50,13 +49,16 @@ export function startMqtt(): mqtt.MqttClient {
   client.on('connect', () => {
     debugLog.info(`[mqtt] connected to ${MQTT_URL}`);
     prepopulateObserverNodes();
-    client.subscribe(MQTT_TOPIC, (err) => {
-      if (err) {
-        debugLog.error(`[mqtt] subscribe error: ${err.message}`);
-      } else {
-        debugLog.info(`[mqtt] subscribed to ${MQTT_TOPIC}`);
-      }
-    });
+
+    for (const topic of new Set([MQTT_RAW_TOPIC, MQTT_PACKETS_TOPIC])) {
+      client.subscribe(topic, (err) => {
+        if (err) {
+          debugLog.error(`[mqtt] subscribe error (${topic}): ${err.message}`);
+        } else {
+          debugLog.info(`[mqtt] subscribed to ${topic}`);
+        }
+      });
+    }
   });
 
   client.on('reconnect', () => debugLog.info('[mqtt] reconnecting…'));
@@ -65,9 +67,10 @@ export function startMqtt(): mqtt.MqttClient {
 
   client.on('message', (topic, payload) => {
     debugLog.info(`[mqtt] message on ${topic} (${payload.length} bytes)`);
-    // Extract observer's public key from topic: meshcore/{IATA}/{PUBKEY}/packets
+
     const parts = topic.split('/');
     const observerKey = parts[2] ?? undefined;
+    const streamType = parts[3] ?? '';
 
     const observerHash = observerKey ? hashFromKeyPrefix(observerKey) : null;
     if (observerHash) {
@@ -75,21 +78,28 @@ export function startMqtt(): mqtt.MqttClient {
       broadcastNode(observerNode);
     }
 
-    const hex = extractHex(payload);
-    if (!hex) return;
+    let result = null;
 
-    const result = processPacket(hex, observerKey);
+    if (streamType === 'raw') {
+      const hex = extractHex(payload);
+      if (!hex) return;
+      result = processPacket(hex, observerKey);
+    } else if (streamType === 'packets') {
+      result = processDecodedPacket(payload, observerKey);
+    } else {
+      debugLog.info(`[mqtt] skipping unsupported stream: ${topic}`);
+      return;
+    }
+
     if (!result) return;
 
     packetCount++;
 
-    // Broadcast topology updates
     for (const node of result.nodes) broadcastNode(node);
     for (const edge of result.edges) broadcastEdge(edge);
     broadcastPacket(result.packetType, result.hash, result.edges.length);
   });
 
-  // Broadcast stats every 5 seconds
   statsTimer = setInterval(() => {
     broadcastStats();
   }, 5000);

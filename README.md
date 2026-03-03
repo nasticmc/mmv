@@ -4,7 +4,7 @@ A web app that connects to a LetsMesh-style MQTT server and visualises the MeshC
 
 ## What it does
 
-- Subscribes to `meshcore/+/+/packets` on your MQTT broker
+- Subscribes to both `meshcore/+/+/raw` and `meshcore/+/+/packets` by default
 - Decodes every packet with [`@michaelhart/meshcore-decoder`](https://github.com/michaelhart/meshcore-decoder)
 - Extracts the **path** field from each packet — consecutive 1-byte node hashes that show which nodes relayed it
 - Builds a **force-directed graph** of nodes and edges as the network is heard
@@ -15,7 +15,7 @@ A web app that connects to a LetsMesh-style MQTT server and visualises the MeshC
 
 ```
 MQTT broker (mqtt.eastmesh.au)
-       │  meshcore/+/+/packets
+       │  meshcore/+/+/raw + meshcore/+/+/packets
        ▼
   Node.js backend  ──── SQLite (data/mmv.db)
   (Express + ws)   ──── WebSocket /ws
@@ -77,6 +77,8 @@ When an `Advert` packet is seen, its full public key + name is linked to the mat
 | `MQTT_USERNAME` | — | Optional auth |
 | `MQTT_PASSWORD` | — | Optional auth |
 | `MQTT_CLIENT_ID` | `mmv-<random>` | Client ID |
+| `MQTT_RAW_TOPIC` | `meshcore/+/+/raw` | Raw MQTT topic filter. Messages from this stream are decoded via `meshcore-decoder`. |
+| `MQTT_PACKETS_TOPIC` | `meshcore/+/+/packets` | Pre-decoded packet topic filter. Path data is read directly from JSON payloads (no `meshcore-decoder` call). |
 | `MQTT_OBSERVERS` | — | Optional comma-separated observer public keys/prefixes to pre-populate as nodes at MQTT connect (e.g. `0xA1B2...,7E76...`) |
 | `PORT` | `3001` | HTTP/WS server port |
 | `DB_PATH` | `./data/mmv.db` | SQLite file path |
