@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { NetworkGraph, type GraphSettings } from './components/NetworkGraph';
+import { NetworkGraph3D } from './components/NetworkGraph3D';
 import { NodePanel } from './components/NodePanel';
 import { StatsBar } from './components/StatsBar';
 import { PacketLog } from './components/PacketLog';
@@ -20,6 +21,7 @@ const DEFAULT_GRAPH_SETTINGS: GraphSettings = {
   chargeStrength: -350,
   showLabels: true,
   showPacketBadges: true,
+  mode: '2d',
 };
 
 export default function App() {
@@ -47,13 +49,23 @@ export default function App() {
       {/* Main area */}
       <div className="flex flex-1 min-h-0 relative">
         {/* Graph */}
-        <NetworkGraph
-          nodes={nodes}
-          edges={edges}
-          selectedId={selectedId}
-          onSelect={setSelectedId}
-          settings={graphSettings}
-        />
+        {graphSettings.mode === '3d' ? (
+          <NetworkGraph3D
+            nodes={nodes}
+            edges={edges}
+            selectedId={selectedId}
+            onSelect={setSelectedId}
+            settings={graphSettings}
+          />
+        ) : (
+          <NetworkGraph
+            nodes={nodes}
+            edges={edges}
+            selectedId={selectedId}
+            onSelect={setSelectedId}
+            settings={graphSettings}
+          />
+        )}
 
         {/* Visualization controls */}
         <div className="absolute top-3 left-3 z-30">
@@ -115,6 +127,12 @@ export default function App() {
                 step={10}
                 value={Math.abs(graphSettings.chargeStrength)}
                 onChange={(v) => setGraphSettings(s => ({ ...s, chargeStrength: -v }))}
+              />
+
+              <ToggleControl
+                label="3D mode"
+                checked={graphSettings.mode === '3d'}
+                onChange={(checked) => setGraphSettings(s => ({ ...s, mode: checked ? '3d' : '2d' }))}
               />
 
               <ToggleControl

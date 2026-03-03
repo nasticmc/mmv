@@ -1,6 +1,7 @@
 import { useEffect, useRef } from 'react';
 import * as d3 from 'd3';
 import type { NodeData, EdgeData } from '../types';
+import { ROLE_COLORS } from '../types';
 
 export interface GraphSettings {
   minNodeRadius: number;
@@ -10,6 +11,7 @@ export interface GraphSettings {
   chargeStrength: number;
   showLabels: boolean;
   showPacketBadges: boolean;
+  mode: '2d' | '3d';
 }
 
 interface Props {
@@ -213,7 +215,7 @@ export function NetworkGraph({ nodes, edges, selectedId, onSelect, settings }: P
     node
       .append('circle')
       .attr('r', (d) => nodeRadius(d.hash, degreeByNode, settings))
-      .attr('fill', '#5b21b6')
+      .attr('fill', (d) => ROLE_COLORS[d.device_role] ?? ROLE_COLORS[0])
       .attr('stroke', (d) => (d.hash === selectedId ? '#fbbf24' : '#1f2937'))
       .attr('stroke-width', (d) => (d.hash === selectedId ? 2.5 : 1.5));
 
