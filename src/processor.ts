@@ -2,7 +2,7 @@ import { MeshCorePacketDecoder } from '@michaelhart/meshcore-decoder';
 import { PayloadType } from '@michaelhart/meshcore-decoder';
 import type { AdvertPayload } from '@michaelhart/meshcore-decoder';
 import { touchNode, touchEdge, applyAdvert, type NodeRow, type EdgeRow } from './db.js';
-import { hashFromKeyPrefix } from './hash-utils.js';
+import { hashFromKeyPrefix, normalizeHexPrefix } from './hash-utils.js';
 
 export interface ProcessResult {
   nodes: NodeRow[];
@@ -35,6 +35,27 @@ const DEVICE_ROLE = {
 
 function isInfraRole(role: number): boolean {
   return role === DEVICE_ROLE.Repeater || role === DEVICE_ROLE.RoomServer;
+}
+
+function normalizePathHop(value: unknown): string | null {
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    const asByte = Math.trunc(value) & 0xff;
+    return asByte.toString(16).padStart(2, '0');
+  }
+
+  if (typeof value === 'string') {
+    return hashFromKeyPrefix(value);
+  }
+
+  if (value && typeof value === 'object') {
+    const obj = value as Record<string, unknown>;
+    const candidate = obj.hash ?? obj.nodeId ?? obj.id ?? obj.publicKey ?? obj.key ?? obj.prefix;
+    if (typeof candidate === 'string') {
+      return hashFromKeyPrefix(candidate);
+    }
+  }
+
+  return null;
 }
 
 /**
@@ -84,8 +105,11 @@ export function processPacket(hex: string, observerKey?: string): ProcessResult 
   const packetType = PAYLOAD_TYPE_NAMES[packet.payloadType] ?? String(packet.payloadType);
 
   // --- Process path hashes → nodes + edges ---
-  const path = packet.path ?? [];
-  const pathHashSet = new Set(path.map((h) => h.toLowerCase()));
+  const rawPath = Array.isArray(packet.path) ? packet.path : [];
+  const path = rawPath
+    .map((hop) => normalizePathHop(hop))
+    .filter((hop): hop is string => typeof hop === 'string');
+  const pathHashSet = new Set(path.map((h) => normalizeHexPrefix(h).slice(0, 2)));
 
   for (const pathHash of path) {
     const node = touchNode(pathHash, now);
