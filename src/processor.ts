@@ -28,6 +28,15 @@ const PAYLOAD_TYPE_NAMES: Record<number, string> = {
   15: 'RawCustom',
 };
 
+const DEVICE_ROLE = {
+  Repeater: 2,
+  RoomServer: 3,
+} as const;
+
+function isInfraRole(role: number): boolean {
+  return role === DEVICE_ROLE.Repeater || role === DEVICE_ROLE.RoomServer;
+}
+
 /**
  * Extract hex data from MQTT message payload.
  * Handles raw hex strings and simple JSON wrappers.
@@ -76,6 +85,7 @@ export function processPacket(hex: string, observerKey?: string): ProcessResult 
 
   // --- Process path hashes → nodes + edges ---
   const path = packet.path ?? [];
+  const pathHashSet = new Set(path.map((h) => h.toLowerCase()));
 
   for (const pathHash of path) {
     const node = touchNode(pathHash, now);
@@ -92,33 +102,45 @@ export function processPacket(hex: string, observerKey?: string): ProcessResult 
   if (packet.payloadType === (PayloadType.Advert as number) && packet.payload.decoded) {
     const advert = packet.payload.decoded as AdvertPayload;
     if (advert.isValid && advert.publicKey) {
-      const advertHash = applyAdvert(
-        advert.publicKey,
-        advert.appData.name ?? null,
-        advert.appData.deviceRole as number,
-        advert.timestamp ?? null,
-        now,
-        advert.appData.hasLocation && advert.appData.location
-          ? advert.appData.location
-          : undefined
-      );
-      // The advert node might not be in the path (zero-hop advert from observer)
-      const node = touchNode(advertHash, now);
-      if (!updatedNodes.some(n => n.hash === advertHash)) {
-        updatedNodes.push(node);
-      }
+      const advertDeviceRole = advert.appData.deviceRole as number;
+      const advertHash = hashFromKeyPrefix(advert.publicKey);
+      if (!advertHash) {
+        // Invalid key prefix: ignore advert enrichment and continue safely.
+      } else {
+        const pathIncludesAdvert = pathHashSet.has(advertHash.toLowerCase());
+        const nodeRoleOverride = pathIncludesAdvert && !isInfraRole(advertDeviceRole)
+          ? 0
+          : undefined;
 
-      // If the adverting node hash is not included in path, attach it to the
-      // first path hop (origin-side) so named adverting devices are still linked
-      // into the observed route.
-      if (path.length > 0 && advertHash !== path[0]) {
-        const advertEdge = touchEdge(advertHash, path[0], now);
-        if (
-          !updatedEdges.some(
-            e => e.from_hash === advertEdge.from_hash && e.to_hash === advertEdge.to_hash
-          )
-        ) {
-          updatedEdges.push(advertEdge);
+        const persistedHash = applyAdvert(
+          advert.publicKey,
+          advert.appData.name ?? null,
+          advertDeviceRole,
+          advert.timestamp ?? null,
+          now,
+          advert.appData.hasLocation && advert.appData.location
+            ? advert.appData.location
+            : undefined,
+          nodeRoleOverride
+        );
+        // The advert node might not be in the path (zero-hop advert from observer)
+        const node = touchNode(persistedHash, now);
+        if (!updatedNodes.some(n => n.hash === persistedHash)) {
+          updatedNodes.push(node);
+        }
+
+        // If the adverting node hash is not included in path, attach it to the
+        // first path hop (origin-side) so named adverting devices are still linked
+        // into the observed route.
+        if (path.length > 0 && persistedHash !== path[0]) {
+          const advertEdge = touchEdge(persistedHash, path[0], now);
+          if (
+            !updatedEdges.some(
+              e => e.from_hash === advertEdge.from_hash && e.to_hash === advertEdge.to_hash
+            )
+          ) {
+            updatedEdges.push(advertEdge);
+          }
         }
       }
     }

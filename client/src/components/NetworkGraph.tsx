@@ -60,6 +60,9 @@ function edgeWidth(e: EdgeData): number {
 export function NetworkGraph({ nodes, edges, selectedId, onSelect, settings }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   const simRef = useRef<d3.Simulation<SimNode, SimEdge> | null>(null);
+  const svgRef = useRef<d3.Selection<SVGSVGElement, unknown, null, undefined> | null>(null);
+  const zoomRef = useRef<d3.ZoomBehavior<SVGSVGElement, unknown> | null>(null);
+  const focusPendingRef = useRef<string | null>(null);
   // Preserve node positions across renders
   const posRef = useRef<Map<string, { x: number; y: number }>>(new Map());
   // Preserve zoom/pan so data updates don't reset the viewport
@@ -114,6 +117,8 @@ export function NetworkGraph({ nodes, edges, selectedId, onSelect, settings }: P
       });
     svg.call(zoom);
     svg.call(zoom.transform, zoomTransformRef.current);
+    svgRef.current = svg;
+    zoomRef.current = zoom;
 
     // Click on background deselects
     svg.on('click', () => onSelect(null));
@@ -165,9 +170,22 @@ export function NetworkGraph({ nodes, edges, selectedId, onSelect, settings }: P
       .selectAll<SVGLineElement, SimEdge>('line')
       .data(simEdges)
       .join('line')
-      .attr('stroke', '#2563eb')
-      .attr('stroke-opacity', 0.7)
-      .attr('stroke-width', (d) => edgeWidth(d))
+      .attr('stroke', (d) => (
+        selectedId && (d.from_hash === selectedId || d.to_hash === selectedId)
+          ? '#fbbf24'
+          : '#2563eb'
+      ))
+      .attr('stroke-opacity', (d) => {
+        if (!selectedId) return 0.7;
+        return d.from_hash === selectedId || d.to_hash === selectedId ? 0.95 : 0.15;
+      })
+      .attr('stroke-width', (d) => {
+        const width = edgeWidth(d);
+        if (selectedId && (d.from_hash === selectedId || d.to_hash === selectedId)) {
+          return width + 1;
+        }
+        return width;
+      })
       .attr('marker-end', 'url(#arrow)');
 
     // --- Draw nodes ---
@@ -216,6 +234,15 @@ export function NetworkGraph({ nodes, edges, selectedId, onSelect, settings }: P
       .append('circle')
       .attr('r', (d) => nodeRadius(d.hash, degreeByNode, settings))
       .attr('fill', (d) => ROLE_COLORS[d.device_role] ?? ROLE_COLORS[0])
+      .attr('fill-opacity', (d) => {
+        if (!selectedId) return 1;
+        if (d.hash === selectedId) return 1;
+        const connectedToSelected = simEdges.some((e) =>
+          (e.from_hash === selectedId && e.to_hash === d.hash) ||
+          (e.to_hash === selectedId && e.from_hash === d.hash)
+        );
+        return connectedToSelected ? 0.95 : 0.35;
+      })
       .attr('stroke', (d) => (d.hash === selectedId ? '#fbbf24' : '#1f2937'))
       .attr('stroke-width', (d) => (d.hash === selectedId ? 2.5 : 1.5));
 
@@ -259,6 +286,24 @@ export function NetworkGraph({ nodes, edges, selectedId, onSelect, settings }: P
 
       // Save positions
       simNodes.forEach((n) => posRef.current.set(n.hash, { x: n.x, y: n.y }));
+
+      if (focusPendingRef.current) {
+        const target = simNodes.find((n) => n.hash === focusPendingRef.current);
+        const svgNode = svgRef.current;
+        const zoomBehavior = zoomRef.current;
+        if (target && svgNode && zoomBehavior) {
+          const current = zoomTransformRef.current;
+          const scale = Math.max(current.k, 1.15);
+          const next = d3.zoomIdentity
+            .translate(W / 2 - target.x * scale, H / 2 - target.y * scale)
+            .scale(scale);
+          svgNode
+            .transition()
+            .duration(350)
+            .call(zoomBehavior.transform, next);
+          focusPendingRef.current = null;
+        }
+      }
     });
 
     // Slow down after initial layout
@@ -267,6 +312,10 @@ export function NetworkGraph({ nodes, edges, selectedId, onSelect, settings }: P
 
     return () => { sim.stop(); };
   }, [nodes, edges, selectedId, onSelect, settings]);
+
+  useEffect(() => {
+    focusPendingRef.current = selectedId;
+  }, [selectedId]);
 
   // Handle container resize
   useEffect(() => {

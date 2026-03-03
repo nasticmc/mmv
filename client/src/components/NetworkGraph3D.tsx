@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import ForceGraph3D from 'react-force-graph-3d';
+import ForceGraph3D, { type LinkObject, type NodeObject } from 'react-force-graph-3d';
 import SpriteText from 'three-spritetext';
 import type { EdgeData, NodeData } from '../types';
 import { ROLE_COLORS } from '../types';
@@ -23,6 +23,12 @@ interface GraphLink {
   source: string;
   target: string;
   width: number;
+}
+
+function linkNodeId(node: string | number | NodeObject<GraphNode>): string {
+  if (typeof node === 'string') return node;
+  if (typeof node === 'number') return String(node);
+  return String(node.id ?? '');
 }
 
 function nodeColor(node: NodeData): string {
@@ -82,21 +88,37 @@ export function NetworkGraph3D({ nodes, edges, selectedId, onSelect, settings }:
           width={size.width}
           height={size.height}
           backgroundColor="#030712"
-          nodeLabel={(node) => {
+          nodeLabel={(node: NodeObject<GraphNode>) => {
             const graphNode = node as GraphNode;
             return `${graphNode.name ?? graphNode.hash.toUpperCase()}\n${graphNode.hash.toUpperCase()}`;
           }}
-          nodeColor={(node) => {
+          nodeColor={(node: NodeObject<GraphNode>) => {
             const graphNode = node as GraphNode;
-            return graphNode.hash === selectedId ? '#fbbf24' : graphNode.color;
+            if (!selectedId) return graphNode.color;
+            if (graphNode.hash === selectedId) return '#fbbf24';
+            const connected = edges.some((e) =>
+              (e.from_hash === selectedId && e.to_hash === graphNode.hash) ||
+              (e.to_hash === selectedId && e.from_hash === graphNode.hash)
+            );
+            return connected ? graphNode.color : '#374151';
           }}
           nodeRelSize={3}
-          linkWidth={(link) => (link as GraphLink).width}
-          linkColor={() => '#2563eb'}
+          linkWidth={(link: LinkObject<GraphNode, GraphLink>) => {
+            if (!selectedId) return link.width;
+            const sourceId = linkNodeId(link.source ?? '');
+            const targetId = linkNodeId(link.target ?? '');
+            return sourceId === selectedId || targetId === selectedId ? link.width + 1 : 0.4;
+          }}
+          linkColor={(link: LinkObject<GraphNode, GraphLink>) => {
+            if (!selectedId) return '#2563eb';
+            const sourceId = linkNodeId(link.source ?? '');
+            const targetId = linkNodeId(link.target ?? '');
+            return sourceId === selectedId || targetId === selectedId ? '#fbbf24' : '#1d4ed8';
+          }}
           linkOpacity={0.55}
           linkDirectionalArrowLength={3.5}
           linkDirectionalArrowRelPos={1}
-          onNodeClick={(node) => {
+          onNodeClick={(node: NodeObject<GraphNode>) => {
             const graphNode = node as GraphNode;
             onSelect(graphNode.hash);
           }}

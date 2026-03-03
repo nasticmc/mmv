@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useMemo } from 'react';
 import { NetworkGraph, type GraphSettings } from './components/NetworkGraph';
 import { NetworkGraph3D } from './components/NetworkGraph3D';
 import { NodePanel } from './components/NodePanel';
@@ -30,6 +30,25 @@ export default function App() {
   const [showDebug, setShowDebug] = useState(false);
   const [showVizControls, setShowVizControls] = useState(false);
   const [graphSettings, setGraphSettings] = useState<GraphSettings>(DEFAULT_GRAPH_SETTINGS);
+
+  const [searchTerm, setSearchTerm] = useState('');
+
+  const searchMatches = useMemo(() => {
+    const query = searchTerm.trim().toLowerCase();
+    if (!query) return [];
+    return nodes
+      .filter((n) => {
+        const name = (n.name ?? '').toLowerCase();
+        const hash = n.hash.toLowerCase();
+        return name.includes(query) || hash.startsWith(query);
+      })
+      .slice(0, 8);
+  }, [nodes, searchTerm]);
+
+  const jumpToNode = (hash: string) => {
+    setSelectedId(hash);
+    setSearchTerm('');
+  };
 
   // Compute packet rate from recent packets
   const rateRef = useRef<number>(0);
@@ -66,6 +85,40 @@ export default function App() {
             settings={graphSettings}
           />
         )}
+
+
+        {/* Node search */}
+        <div className="absolute top-3 left-1/2 -translate-x-1/2 z-30 w-[26rem] max-w-[calc(100%-1.5rem)]">
+          <div className="relative">
+            <input
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' && searchMatches.length > 0) {
+                  jumpToNode(searchMatches[0].hash);
+                }
+                if (e.key === 'Escape') setSearchTerm('');
+              }}
+              placeholder="Search node name or hash prefix…"
+              className="w-full rounded border border-gray-700 bg-gray-900/95 px-3 py-2 text-xs font-mono text-gray-100 placeholder:text-gray-500 focus:outline-none focus:border-indigo-500"
+            />
+            {searchTerm.trim().length > 0 && searchMatches.length > 0 && (
+              <div className="absolute mt-1 w-full rounded border border-gray-700 bg-gray-900 shadow-2xl overflow-hidden">
+                {searchMatches.map((n) => (
+                  <button
+                    key={n.hash}
+                    type="button"
+                    onClick={() => jumpToNode(n.hash)}
+                    className="flex w-full items-center justify-between px-3 py-2 text-left text-xs font-mono hover:bg-gray-800 text-gray-200"
+                  >
+                    <span className="truncate pr-3">{n.name ?? 'Unnamed node'}</span>
+                    <span className="text-gray-500">{n.hash.toUpperCase()}</span>
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
 
         {/* Visualization controls */}
         <div className="absolute top-3 left-3 z-30">
