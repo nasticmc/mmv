@@ -1,4 +1,4 @@
-# MMV — Mesh Network Visualizer
+# MMV — Mesh MQTT Visualizer
 
 MMV is a real-time MeshCore topology visualizer.
 
