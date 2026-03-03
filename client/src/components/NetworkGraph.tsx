@@ -1,7 +1,6 @@
 import { useEffect, useRef } from 'react';
 import * as d3 from 'd3';
 import type { NodeData, EdgeData } from '../types';
-import { ROLE_COLORS } from '../types';
 
 interface Props {
   nodes: NodeData[];
@@ -76,7 +75,7 @@ export function NetworkGraph({ nodes, edges, selectedId, onSelect }: Props) {
       .attr('orient', 'auto')
       .append('path')
       .attr('d', 'M0,-4L8,0L0,4')
-      .attr('fill', '#374151');
+      .attr('fill', '#2563eb');
 
     // Zoom / pan
     const zoomG = svg.append('g');
@@ -140,7 +139,7 @@ export function NetworkGraph({ nodes, edges, selectedId, onSelect }: Props) {
       .selectAll<SVGLineElement, SimEdge>('line')
       .data(simEdges)
       .join('line')
-      .attr('stroke', '#374151')
+      .attr('stroke', '#2563eb')
       .attr('stroke-opacity', 0.7)
       .attr('stroke-width', (d) => edgeWidth(d))
       .attr('marker-end', 'url(#arrow)');
@@ -190,7 +189,7 @@ export function NetworkGraph({ nodes, edges, selectedId, onSelect }: Props) {
     node
       .append('circle')
       .attr('r', (d) => nodeRadius(d))
-      .attr('fill', (d) => ROLE_COLORS[d.device_role] ?? ROLE_COLORS[0])
+      .attr('fill', '#5b21b6')
       .attr('stroke', (d) => (d.hash === selectedId ? '#fbbf24' : '#1f2937'))
       .attr('stroke-width', (d) => (d.hash === selectedId ? 2.5 : 1.5));
 
