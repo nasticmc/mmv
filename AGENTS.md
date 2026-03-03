@@ -14,7 +14,7 @@ MMV (Mesh MQTT Visualizer) is a real-time MeshCore network topology visualizer. 
 ## Architecture
 
 ```text
-MQTT broker (meshcore/+/+/raw)
+MQTT broker (meshcore/+/+/packets)
         |
         v
   mqtt-client.ts  ── extracts observer key from topic, decodes hex payload
@@ -130,7 +130,7 @@ There are no automated tests currently. Validate by building and spot-checking b
 | `MQTT_USERNAME` | _(unset)_ | Optional MQTT username |
 | `MQTT_PASSWORD` | _(unset)_ | Optional MQTT password |
 | `MQTT_CLIENT_ID` | `mmv-<random>` | MQTT client ID |
-| `MQTT_RAW_TOPIC` | `meshcore/+/+/raw` | MQTT topic pattern for raw hex packets |
+| `MQTT_TOPIC` | `meshcore/+/+/packets` | MQTT topic pattern for packet JSON messages |
 | `MQTT_OBSERVERS` | _(unset)_ | Comma-separated observer public keys to pre-populate |
 | `PORT` | `3001` | Backend HTTP/WebSocket port |
 | `DB_PATH` | `./data/mmv.db` | SQLite database file path |
@@ -191,9 +191,9 @@ There are no automated tests currently. Validate by building and spot-checking b
 
 This is the core logic flow for every incoming MQTT message:
 
-1. **Topic parsing** (`mqtt-client.ts`): Extract observer public key from `meshcore/+/<key>/raw`. Touch the observer node immediately.
-2. **Hex extraction** (`processor.ts:extractHex`): Parse the MQTT payload — supports JSON-wrapped hex (`{"hex": "..."}`) or raw hex strings. Minimum 4 hex chars.
-3. **Packet decode** (`processor.ts:processPacket`): Decode hex via `MeshCorePacketDecoder.decode()`. Reject if `!packet.isValid`.
+1. **Topic parsing** (`mqtt-client.ts`): Extract observer public key from `meshcore/+/<key>/packets`. Touch the observer node immediately.
+2. **JSON envelope parsing** (`mqtt-client.ts`): Parse the MQTT payload as JSON. Extract the `raw` hex field from the packet envelope (which also contains metadata like SNR, RSSI, hash, packet_type, etc.).
+3. **Packet decode** (`processor.ts:processPacket`): Decode the raw hex via `MeshCorePacketDecoder.decode()`. Reject if `!packet.isValid`.
 4. **Path processing** (`processor.ts:applyPathAndObserver`):
    - Touch a node for each hash in the decoded path array
    - Touch an edge for each consecutive pair `[path[i], path[i+1]]`

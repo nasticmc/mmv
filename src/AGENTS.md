@@ -27,14 +27,24 @@ In production mode (`NODE_ENV=production`), it also serves the built frontend fr
 Connects to the MQTT broker, subscribes to the raw packet topic, and dispatches incoming messages through the processing pipeline.
 
 Key behaviors:
-- **Topic parsing**: Splits topic `meshcore/<namespace>/<observer_key>/raw` to extract the observer's public key from `parts[2]`.
+- **Topic parsing**: Splits topic `meshcore/<namespace>/<observer_key>/packets` to extract the observer's public key from `parts[2]`.
 - **Observer node creation**: Immediately touches the observer node on every message, before packet decoding.
-- **Hex extraction + processing**: Calls `extractHex()` then `processPacket()`. Only handles `raw` stream type.
+- **JSON envelope parsing**: Parses the MQTT payload as JSON and extracts the `raw` hex field. The envelope also contains metadata (SNR, RSSI, hash, score, duration, etc.) available for future use.
+- **Packet processing**: Passes the `raw` hex to `processPacket()`. Only handles `packets` stream type.
 - **Broadcast**: Iterates over result nodes and edges, broadcasting each individually to WebSocket clients.
 - **Stats timer**: Broadcasts stats every 5 seconds via `setInterval`.
 - **Observer pre-population**: On connect, reads `MQTT_OBSERVERS` env var and creates nodes for each configured key.
 
-**When to modify**: Supporting new MQTT topic patterns, new stream types, changing reconnect behavior, or adjusting the stats broadcast interval.
+**Packet envelope fields** (available in the JSON but not all currently used):
+- `raw` — hex packet data (extracted and decoded)
+- `SNR`, `RSSI` — signal quality metrics
+- `hash` — packet hash from the gateway
+- `packet_type` — payload type as string
+- `score`, `duration` — reception quality
+- `direction` — `rx`/`tx`
+- `timestamp`, `time`, `date` — reception timing
+
+**When to modify**: Supporting new MQTT topic patterns, new stream types, using additional envelope metadata, or adjusting the stats broadcast interval.
 
 ### `processor.ts` — Packet decode and topology inference
 
@@ -187,13 +197,13 @@ interface EdgeRow {
 
 ## MQTT topic structure
 
-Default subscription: `meshcore/+/+/raw`
+Default subscription: `meshcore/+/+/packets`
 
 Topic format: `meshcore/<namespace>/<observer_public_key>/<stream_type>`
 
 - `namespace` — grouping segment (not currently used by the backend logic)
 - `observer_public_key` — hex public key of the gateway node that received the packet over RF; used to derive observer hash and link as final hop
-- `stream_type` — currently only `raw` is processed; other types are logged and skipped
+- `stream_type` — currently only `packets` is processed (JSON envelopes containing `raw` hex); other types are logged and skipped
 
 ## Reliability
 

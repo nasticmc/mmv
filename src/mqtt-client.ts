@@ -1,11 +1,11 @@
 import mqtt from 'mqtt';
-import { extractHex, processPacket } from './processor.js';
+import { processPacket } from './processor.js';
 import { broadcastNode, broadcastEdge, broadcastStats, broadcastPacket, debugLog } from './ws-broadcast.js';
 import { touchNode } from './db.js';
 import { hashFromKeyPrefix } from './hash-utils.js';
 
 const MQTT_URL = process.env.MQTT_URL ?? 'mqtt://mqtt.eastmesh.au:1883';
-const MQTT_RAW_TOPIC = process.env.MQTT_RAW_TOPIC ?? 'meshcore/+/+/raw';
+const MQTT_TOPIC = process.env.MQTT_TOPIC ?? process.env.MQTT_RAW_TOPIC ?? 'meshcore/+/+/packets';
 
 let packetCount = 0;
 let statsTimer: ReturnType<typeof setInterval> | null = null;
@@ -49,11 +49,11 @@ export function startMqtt(): mqtt.MqttClient {
     debugLog.info(`[mqtt] connected to ${MQTT_URL}`);
     prepopulateObserverNodes();
 
-    client.subscribe(MQTT_RAW_TOPIC, (err) => {
+    client.subscribe(MQTT_TOPIC, (err) => {
       if (err) {
-        debugLog.error(`[mqtt] subscribe error (${MQTT_RAW_TOPIC}): ${err.message}`);
+        debugLog.error(`[mqtt] subscribe error (${MQTT_TOPIC}): ${err.message}`);
       } else {
-        debugLog.info(`[mqtt] subscribed to ${MQTT_RAW_TOPIC}`);
+        debugLog.info(`[mqtt] subscribed to ${MQTT_TOPIC}`);
       }
     });
   });
@@ -77,10 +77,22 @@ export function startMqtt(): mqtt.MqttClient {
 
     let result = null;
 
-    if (streamType === 'raw') {
-      const hex = extractHex(payload);
-      if (!hex) return;
-      result = processPacket(hex, observerKey);
+    if (streamType === 'packets') {
+      let envelope: Record<string, unknown>;
+      try {
+        envelope = JSON.parse(payload.toString('utf-8')) as Record<string, unknown>;
+      } catch {
+        debugLog.warn(`[mqtt] failed to parse JSON from ${topic}`);
+        return;
+      }
+
+      const raw = envelope.raw;
+      if (typeof raw !== 'string' || raw.length < 4) {
+        debugLog.warn(`[mqtt] missing or invalid "raw" field in packet envelope`);
+        return;
+      }
+
+      result = processPacket(raw, observerKey);
     } else {
       debugLog.info(`[mqtt] skipping unsupported stream: ${topic}`);
       return;
