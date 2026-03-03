@@ -82,7 +82,7 @@ export default function App() {
 
           {showVizControls && (
             <div className="mt-2 w-72 rounded-lg border border-gray-700 bg-gray-900/95 backdrop-blur p-3 text-xs font-mono space-y-3 shadow-2xl">
-              <div className="text-gray-300 font-semibold">Node size now scales by connections (degree).</div>
+              <div className="text-gray-300 font-semibold">Node size is fixed for all nodes.</div>
 
               <RangeControl
                 label={`Min radius: ${graphSettings.minNodeRadius}`}

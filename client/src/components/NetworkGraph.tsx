@@ -38,19 +38,8 @@ interface SimEdge extends EdgeData {
   target: SimNode;
 }
 
-function buildConnectionCount(edges: EdgeData[]): Map<string, number> {
-  const degreeByNode = new Map<string, number>();
-  for (const edge of edges) {
-    degreeByNode.set(edge.from_hash, (degreeByNode.get(edge.from_hash) ?? 0) + 1);
-    degreeByNode.set(edge.to_hash, (degreeByNode.get(edge.to_hash) ?? 0) + 1);
-  }
-  return degreeByNode;
-}
-
-function nodeRadius(hash: string, degreeByNode: Map<string, number>, settings: GraphSettings): number {
-  const connections = degreeByNode.get(hash) ?? 0;
-  const scaled = settings.minNodeRadius + connections * 2;
-  return Math.max(settings.minNodeRadius, Math.min(scaled, settings.maxNodeRadius));
+function nodeRadius(settings: GraphSettings): number {
+  return settings.minNodeRadius;
 }
 
 function edgeWidth(e: EdgeData): number {
@@ -68,8 +57,6 @@ export function NetworkGraph({ nodes, edges, selectedId, onSelect, settings }: P
   useEffect(() => {
     const container = containerRef.current;
     if (!container) return;
-
-    const degreeByNode = buildConnectionCount(edges);
 
     // Stop previous simulation
     simRef.current?.stop();
@@ -155,7 +142,7 @@ export function NetworkGraph({ nodes, edges, selectedId, onSelect, settings }: P
       )
       .force('charge', d3.forceManyBody<SimNode>().strength(settings.chargeStrength))
       .force('center', d3.forceCenter(W / 2, H / 2).strength(0.05))
-      .force('collide', d3.forceCollide<SimNode>((d) => nodeRadius(d.hash, degreeByNode, settings) + 10));
+      .force('collide', d3.forceCollide<SimNode>(() => nodeRadius(settings) + 10));
 
     simRef.current = sim;
 
@@ -205,7 +192,7 @@ export function NetworkGraph({ nodes, edges, selectedId, onSelect, settings }: P
     node
       .append('circle')
       .attr('class', 'glow')
-      .attr('r', (d) => nodeRadius(d.hash, degreeByNode, settings) + 6)
+      .attr('r', nodeRadius(settings) + 6)
       .attr('fill', 'none')
       .attr('stroke', (d) => (d.hash === selectedId ? '#fbbf24' : 'none'))
       .attr('stroke-width', 2)
@@ -214,7 +201,7 @@ export function NetworkGraph({ nodes, edges, selectedId, onSelect, settings }: P
     // Main circle
     node
       .append('circle')
-      .attr('r', (d) => nodeRadius(d.hash, degreeByNode, settings))
+      .attr('r', nodeRadius(settings))
       .attr('fill', (d) => ROLE_COLORS[d.device_role] ?? ROLE_COLORS[0])
       .attr('stroke', (d) => (d.hash === selectedId ? '#fbbf24' : '#1f2937'))
       .attr('stroke-width', (d) => (d.hash === selectedId ? 2.5 : 1.5));
@@ -224,7 +211,7 @@ export function NetworkGraph({ nodes, edges, selectedId, onSelect, settings }: P
       node
         .append('text')
         .text((d) => d.name ?? d.hash.toUpperCase())
-        .attr('dy', (d) => -(nodeRadius(d.hash, degreeByNode, settings) + 6))
+        .attr('dy', -(nodeRadius(settings) + 6))
         .attr('text-anchor', 'middle')
         .attr('fill', '#9ca3af')
         .attr('font-size', '11px')
@@ -239,7 +226,7 @@ export function NetworkGraph({ nodes, edges, selectedId, onSelect, settings }: P
         .filter((d) => d.packet_count > 0)
         .append('text')
         .text((d) => d.packet_count)
-        .attr('dy', (d) => nodeRadius(d.hash, degreeByNode, settings) + 14)
+        .attr('dy', nodeRadius(settings) + 14)
         .attr('text-anchor', 'middle')
         .attr('fill', '#6b7280')
         .attr('font-size', '9px')

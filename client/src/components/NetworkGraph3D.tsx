@@ -56,10 +56,7 @@ export function NetworkGraph3D({ nodes, edges, selectedId, onSelect, settings }:
       ...node,
       id: node.hash,
       color: nodeColor(node),
-      val: Math.max(
-        settings.minNodeRadius / 2,
-        Math.min(settings.maxNodeRadius / 2, settings.minNodeRadius / 2 + node.packet_count / 4)
-      ),
+      val: settings.minNodeRadius / 2,
     }));
 
     const nodeSet = new Set(graphNodes.map((node) => node.hash));
@@ -72,7 +69,7 @@ export function NetworkGraph3D({ nodes, edges, selectedId, onSelect, settings }:
       }));
 
     return { nodes: graphNodes, links: graphLinks };
-  }, [nodes, edges, settings.maxNodeRadius, settings.minNodeRadius]);
+  }, [nodes, edges, settings.minNodeRadius]);
 
   return (
     <div ref={containerRef} className="flex-1 relative overflow-hidden" style={{ minHeight: 0 }}>
