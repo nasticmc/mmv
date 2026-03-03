@@ -92,7 +92,7 @@ export function processPacket(hex: string, observerKey?: string): ProcessResult 
   if (packet.payloadType === (PayloadType.Advert as number) && packet.payload.decoded) {
     const advert = packet.payload.decoded as AdvertPayload;
     if (advert.isValid && advert.publicKey) {
-      const hash = applyAdvert(
+      const advertHash = applyAdvert(
         advert.publicKey,
         advert.appData.name ?? null,
         advert.appData.deviceRole as number,
@@ -103,9 +103,23 @@ export function processPacket(hex: string, observerKey?: string): ProcessResult 
           : undefined
       );
       // The advert node might not be in the path (zero-hop advert from observer)
-      const node = touchNode(hash, now);
-      if (!updatedNodes.some(n => n.hash === hash)) {
+      const node = touchNode(advertHash, now);
+      if (!updatedNodes.some(n => n.hash === advertHash)) {
         updatedNodes.push(node);
+      }
+
+      // If the adverting node hash is not included in path, attach it to the
+      // first path hop (origin-side) so named adverting devices are still linked
+      // into the observed route.
+      if (path.length > 0 && advertHash !== path[0]) {
+        const advertEdge = touchEdge(advertHash, path[0], now);
+        if (
+          !updatedEdges.some(
+            e => e.from_hash === advertEdge.from_hash && e.to_hash === advertEdge.to_hash
+          )
+        ) {
+          updatedEdges.push(advertEdge);
+        }
       }
     }
   }
