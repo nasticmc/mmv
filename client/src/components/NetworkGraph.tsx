@@ -2,11 +2,22 @@ import { useEffect, useRef } from 'react';
 import * as d3 from 'd3';
 import type { NodeData, EdgeData } from '../types';
 
+export interface GraphSettings {
+  minNodeRadius: number;
+  maxNodeRadius: number;
+  linkDistance: number;
+  linkStrength: number;
+  chargeStrength: number;
+  showLabels: boolean;
+  showPacketBadges: boolean;
+}
+
 interface Props {
   nodes: NodeData[];
   edges: EdgeData[];
   selectedId: string | null;
   onSelect: (id: string | null) => void;
+  settings: GraphSettings;
 }
 
 // D3 simulation node (extends NodeData with layout props)
@@ -25,15 +36,26 @@ interface SimEdge extends EdgeData {
   target: SimNode;
 }
 
-function nodeRadius(n: NodeData): number {
-  return 9 + Math.min(n.packet_count / 15, 14);
+function buildConnectionCount(edges: EdgeData[]): Map<string, number> {
+  const degreeByNode = new Map<string, number>();
+  for (const edge of edges) {
+    degreeByNode.set(edge.from_hash, (degreeByNode.get(edge.from_hash) ?? 0) + 1);
+    degreeByNode.set(edge.to_hash, (degreeByNode.get(edge.to_hash) ?? 0) + 1);
+  }
+  return degreeByNode;
+}
+
+function nodeRadius(hash: string, degreeByNode: Map<string, number>, settings: GraphSettings): number {
+  const connections = degreeByNode.get(hash) ?? 0;
+  const scaled = settings.minNodeRadius + connections * 2;
+  return Math.max(settings.minNodeRadius, Math.min(scaled, settings.maxNodeRadius));
 }
 
 function edgeWidth(e: EdgeData): number {
   return Math.max(1, Math.min(e.packet_count / 8, 6));
 }
 
-export function NetworkGraph({ nodes, edges, selectedId, onSelect }: Props) {
+export function NetworkGraph({ nodes, edges, selectedId, onSelect, settings }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   const simRef = useRef<d3.Simulation<SimNode, SimEdge> | null>(null);
   // Preserve node positions across renders
@@ -44,6 +66,8 @@ export function NetworkGraph({ nodes, edges, selectedId, onSelect }: Props) {
   useEffect(() => {
     const container = containerRef.current;
     if (!container) return;
+
+    const degreeByNode = buildConnectionCount(edges);
 
     // Stop previous simulation
     simRef.current?.stop();
@@ -124,12 +148,12 @@ export function NetworkGraph({ nodes, edges, selectedId, onSelect }: Props) {
         d3
           .forceLink<SimNode, SimEdge>(simEdges)
           .id((d) => d.hash)
-          .distance(120)
-          .strength(0.5)
+          .distance(settings.linkDistance)
+          .strength(settings.linkStrength)
       )
-      .force('charge', d3.forceManyBody<SimNode>().strength(-350))
+      .force('charge', d3.forceManyBody<SimNode>().strength(settings.chargeStrength))
       .force('center', d3.forceCenter(W / 2, H / 2).strength(0.05))
-      .force('collide', d3.forceCollide<SimNode>((d) => nodeRadius(d) + 10));
+      .force('collide', d3.forceCollide<SimNode>((d) => nodeRadius(d.hash, degreeByNode, settings) + 10));
 
     simRef.current = sim;
 
@@ -179,7 +203,7 @@ export function NetworkGraph({ nodes, edges, selectedId, onSelect }: Props) {
     node
       .append('circle')
       .attr('class', 'glow')
-      .attr('r', (d) => nodeRadius(d) + 6)
+      .attr('r', (d) => nodeRadius(d.hash, degreeByNode, settings) + 6)
       .attr('fill', 'none')
       .attr('stroke', (d) => (d.hash === selectedId ? '#fbbf24' : 'none'))
       .attr('stroke-width', 2)
@@ -188,34 +212,38 @@ export function NetworkGraph({ nodes, edges, selectedId, onSelect }: Props) {
     // Main circle
     node
       .append('circle')
-      .attr('r', (d) => nodeRadius(d))
+      .attr('r', (d) => nodeRadius(d.hash, degreeByNode, settings))
       .attr('fill', '#5b21b6')
       .attr('stroke', (d) => (d.hash === selectedId ? '#fbbf24' : '#1f2937'))
       .attr('stroke-width', (d) => (d.hash === selectedId ? 2.5 : 1.5));
 
-    // Label
-    node
-      .append('text')
-      .text((d) => d.name ?? d.hash.toUpperCase())
-      .attr('dy', (d) => -(nodeRadius(d) + 6))
-      .attr('text-anchor', 'middle')
-      .attr('fill', '#9ca3af')
-      .attr('font-size', '11px')
-      .attr('font-family', 'monospace')
-      .style('pointer-events', 'none')
-      .style('user-select', 'none');
+    if (settings.showLabels) {
+      // Label
+      node
+        .append('text')
+        .text((d) => d.name ?? d.hash.toUpperCase())
+        .attr('dy', (d) => -(nodeRadius(d.hash, degreeByNode, settings) + 6))
+        .attr('text-anchor', 'middle')
+        .attr('fill', '#9ca3af')
+        .attr('font-size', '11px')
+        .attr('font-family', 'monospace')
+        .style('pointer-events', 'none')
+        .style('user-select', 'none');
+    }
 
-    // Packet count badge (small circle + number) for active nodes
-    node
-      .filter((d) => d.packet_count > 0)
-      .append('text')
-      .text((d) => d.packet_count)
-      .attr('dy', (d) => nodeRadius(d) + 14)
-      .attr('text-anchor', 'middle')
-      .attr('fill', '#6b7280')
-      .attr('font-size', '9px')
-      .style('pointer-events', 'none')
-      .style('user-select', 'none');
+    if (settings.showPacketBadges) {
+      // Packet count badge (small circle + number) for active nodes
+      node
+        .filter((d) => d.packet_count > 0)
+        .append('text')
+        .text((d) => d.packet_count)
+        .attr('dy', (d) => nodeRadius(d.hash, degreeByNode, settings) + 14)
+        .attr('text-anchor', 'middle')
+        .attr('fill', '#6b7280')
+        .attr('font-size', '9px')
+        .style('pointer-events', 'none')
+        .style('user-select', 'none');
+    }
 
     // --- Tick ---
     sim.on('tick', () => {
@@ -236,7 +264,7 @@ export function NetworkGraph({ nodes, edges, selectedId, onSelect }: Props) {
     setTimeout(() => sim.alphaTarget(0), 3000);
 
     return () => { sim.stop(); };
-  }, [nodes, edges, selectedId, onSelect]);
+  }, [nodes, edges, selectedId, onSelect, settings]);
 
   // Handle container resize
   useEffect(() => {
