@@ -22,19 +22,16 @@ interface GraphNode extends NodeData {
 interface GraphLink {
   source: string;
   target: string;
-  width: number;
 }
 
 function nodeColor(node: NodeData): string {
   return ROLE_COLORS[node.device_role] ?? ROLE_COLORS[0];
 }
 
-function edgeWidth(e: EdgeData): number {
-  return Math.max(0.5, Math.min(e.packet_count / 12, 3));
-}
-
 export function NetworkGraph3D({ nodes, edges, selectedId, onSelect, settings }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
+  const nodeMapRef = useRef(new Map<string, GraphNode>());
+  const linkMapRef = useRef(new Map<string, GraphLink>());
   const [size, setSize] = useState({ width: 0, height: 0 });
 
   useEffect(() => {
@@ -52,23 +49,55 @@ export function NetworkGraph3D({ nodes, edges, selectedId, onSelect, settings }:
   }, []);
 
   const graphData = useMemo(() => {
-    const graphNodes: GraphNode[] = nodes.map((node) => ({
-      ...node,
-      id: node.hash,
-      color: nodeColor(node),
-      val: settings.minNodeRadius / 2,
-    }));
+    const nextNodeMap = new Map<string, GraphNode>();
 
-    const nodeSet = new Set(graphNodes.map((node) => node.hash));
-    const graphLinks: GraphLink[] = edges
-      .filter((edge) => nodeSet.has(edge.from_hash) && nodeSet.has(edge.to_hash))
-      .map((edge) => ({
-        source: edge.from_hash,
-        target: edge.to_hash,
-        width: edgeWidth(edge),
-      }));
+    for (const node of nodes) {
+      const existing = nodeMapRef.current.get(node.hash);
+      if (existing) {
+        Object.assign(existing, node, {
+          id: node.hash,
+          color: nodeColor(node),
+          val: settings.minNodeRadius / 2,
+        });
+        nextNodeMap.set(node.hash, existing);
+      } else {
+        nextNodeMap.set(node.hash, {
+          ...node,
+          id: node.hash,
+          color: nodeColor(node),
+          val: settings.minNodeRadius / 2,
+        });
+      }
+    }
 
-    return { nodes: graphNodes, links: graphLinks };
+    nodeMapRef.current = nextNodeMap;
+
+    const nodeSet = new Set(nextNodeMap.keys());
+    const nextLinkMap = new Map<string, GraphLink>();
+
+    for (const edge of edges) {
+      if (!nodeSet.has(edge.from_hash) || !nodeSet.has(edge.to_hash)) {
+        continue;
+      }
+
+      const key = `${edge.from_hash}->${edge.to_hash}`;
+      const existing = linkMapRef.current.get(key);
+      if (existing) {
+        nextLinkMap.set(key, existing);
+      } else {
+        nextLinkMap.set(key, {
+          source: edge.from_hash,
+          target: edge.to_hash,
+        });
+      }
+    }
+
+    linkMapRef.current = nextLinkMap;
+
+    return {
+      nodes: [...nextNodeMap.values()],
+      links: [...nextLinkMap.values()],
+    };
   }, [nodes, edges, settings.minNodeRadius]);
 
   return (
@@ -88,9 +117,9 @@ export function NetworkGraph3D({ nodes, edges, selectedId, onSelect, settings }:
             return graphNode.hash === selectedId ? '#fbbf24' : graphNode.color;
           }}
           nodeRelSize={3}
-          linkWidth={(link) => (link as GraphLink).width}
+          linkWidth={1.5}
           linkColor={() => '#2563eb'}
-          linkOpacity={0.55}
+          linkOpacity={settings.threeDLinkOpacity}
           onNodeClick={(node) => {
             const graphNode = node as GraphNode;
             onSelect(graphNode.hash);
@@ -101,7 +130,7 @@ export function NetworkGraph3D({ nodes, edges, selectedId, onSelect, settings }:
             const graphNode = node as GraphNode;
             const sprite = new SpriteText(graphNode.name ?? graphNode.hash.toUpperCase());
             sprite.color = '#9ca3af';
-            sprite.textHeight = 5;
+            sprite.textHeight = settings.threeDLabelSize;
             return sprite;
           }}
           cooldownTicks={150}

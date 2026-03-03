@@ -12,6 +12,8 @@ export interface GraphSettings {
   showLabels: boolean;
   showPacketBadges: boolean;
   mode: '2d' | '3d';
+  threeDLinkOpacity: number;
+  threeDLabelSize: number;
 }
 
 interface Props {
@@ -52,6 +54,8 @@ export function NetworkGraph({ nodes, edges, selectedId, onSelect, settings }: P
   const nodeRef = useRef<d3.Selection<SVGGElement, SimNode, SVGGElement, unknown> | null>(null);
   const simNodesRef = useRef<SimNode[]>([]);
   const posRef = useRef<Map<string, { x: number; y: number }>>(new Map());
+  const topologyKeyRef = useRef('');
+  const forceKeyRef = useRef('');
 
   useEffect(() => {
     const container = containerRef.current;
@@ -112,7 +116,7 @@ export function NetworkGraph({ nodes, edges, selectedId, onSelect, settings }: P
       d3.select(container).selectAll('*').remove();
       simRef.current = null;
     };
-  }, [onSelect, settings.chargeStrength, settings.minNodeRadius]);
+  }, [onSelect]);
 
   useEffect(() => {
     const sim = simRef.current;
@@ -206,8 +210,24 @@ export function NetworkGraph({ nodes, edges, selectedId, onSelect, settings }: P
     sim.force<d3.ForceCollide<SimNode>>('collide')?.radius(() => nodeRadius(settings) + 10);
 
     sim.nodes(simNodes);
-    sim.alpha(Math.min(0.22, 0.08 + simEdges.length * 0.004)).restart();
-    setTimeout(() => sim.alphaTarget(0), 600);
+
+    const topologyKey = [
+      simNodes.map((n) => n.hash).join('|'),
+      simEdges.map((e) => `${e.from_hash}->${e.to_hash}`).join('|'),
+    ].join('::');
+    const forceKey = [
+      settings.linkDistance,
+      settings.linkStrength,
+      settings.chargeStrength,
+      settings.minNodeRadius,
+    ].join('|');
+
+    if (topologyKeyRef.current !== topologyKey || forceKeyRef.current !== forceKey) {
+      sim.alpha(Math.min(0.2, 0.08 + simEdges.length * 0.004)).restart();
+      setTimeout(() => sim.alphaTarget(0), 500);
+      topologyKeyRef.current = topologyKey;
+      forceKeyRef.current = forceKey;
+    }
   }, [nodes, edges, onSelect, settings]);
 
   useEffect(() => {

@@ -22,6 +22,8 @@ const DEFAULT_GRAPH_SETTINGS: GraphSettings = {
   showLabels: true,
   showPacketBadges: true,
   mode: '3d',
+  threeDLinkOpacity: 0.55,
+  threeDLabelSize: 5,
 };
 
 export default function App() {
@@ -84,68 +86,138 @@ export default function App() {
             <div className="mt-2 w-72 rounded-lg border border-gray-700 bg-gray-900/95 backdrop-blur p-3 text-xs font-mono space-y-3 shadow-2xl">
               <div className="text-gray-300 font-semibold">Node size is fixed for all nodes.</div>
 
-              <RangeControl
-                label={`Min radius: ${graphSettings.minNodeRadius}`}
-                min={5}
-                max={18}
-                step={1}
-                value={graphSettings.minNodeRadius}
-                onChange={(v) => setGraphSettings(s => ({ ...s, minNodeRadius: v }))}
-              />
-
-              <RangeControl
-                label={`Max radius: ${graphSettings.maxNodeRadius}`}
-                min={14}
-                max={36}
-                step={1}
-                value={graphSettings.maxNodeRadius}
-                onChange={(v) => setGraphSettings(s => ({ ...s, maxNodeRadius: Math.max(v, s.minNodeRadius + 2) }))}
-              />
-
-              <RangeControl
-                label={`Link distance: ${graphSettings.linkDistance}`}
-                min={60}
-                max={220}
-                step={5}
-                value={graphSettings.linkDistance}
-                onChange={(v) => setGraphSettings(s => ({ ...s, linkDistance: v }))}
-              />
-
-              <RangeControl
-                label={`Link strength: ${graphSettings.linkStrength.toFixed(2)}`}
-                min={0.1}
-                max={1}
-                step={0.05}
-                value={graphSettings.linkStrength}
-                onChange={(v) => setGraphSettings(s => ({ ...s, linkStrength: v }))}
-              />
-
-              <RangeControl
-                label={`Repulsion: ${Math.round(Math.abs(graphSettings.chargeStrength))}`}
-                min={80}
-                max={800}
-                step={10}
-                value={Math.abs(graphSettings.chargeStrength)}
-                onChange={(v) => setGraphSettings(s => ({ ...s, chargeStrength: -v }))}
-              />
-
               <ToggleControl
                 label="3D mode"
                 checked={graphSettings.mode === '3d'}
                 onChange={(checked) => setGraphSettings(s => ({ ...s, mode: checked ? '3d' : '2d' }))}
               />
 
-              <ToggleControl
-                label="Show labels"
-                checked={graphSettings.showLabels}
-                onChange={(checked) => setGraphSettings(s => ({ ...s, showLabels: checked }))}
-              />
+              {graphSettings.mode === '3d' ? (
+                <>
+                  <div className="text-gray-300 font-semibold">3D controls</div>
 
-              <ToggleControl
-                label="Show packet badges"
-                checked={graphSettings.showPacketBadges}
-                onChange={(checked) => setGraphSettings(s => ({ ...s, showPacketBadges: checked }))}
-              />
+                  <RangeControl
+                    label={`Node size: ${graphSettings.minNodeRadius}`}
+                    min={5}
+                    max={18}
+                    step={1}
+                    value={graphSettings.minNodeRadius}
+                    onChange={(v) => setGraphSettings(s => ({ ...s, minNodeRadius: v }))}
+                  />
+
+                  <RangeControl
+                    label={`Link distance: ${graphSettings.linkDistance}`}
+                    min={60}
+                    max={220}
+                    step={5}
+                    value={graphSettings.linkDistance}
+                    onChange={(v) => setGraphSettings(s => ({ ...s, linkDistance: v }))}
+                  />
+
+                  <RangeControl
+                    label={`Link strength: ${graphSettings.linkStrength.toFixed(2)}`}
+                    min={0.1}
+                    max={1}
+                    step={0.05}
+                    value={graphSettings.linkStrength}
+                    onChange={(v) => setGraphSettings(s => ({ ...s, linkStrength: v }))}
+                  />
+
+                  <RangeControl
+                    label={`Repulsion: ${Math.round(Math.abs(graphSettings.chargeStrength))}`}
+                    min={80}
+                    max={800}
+                    step={10}
+                    value={Math.abs(graphSettings.chargeStrength)}
+                    onChange={(v) => setGraphSettings(s => ({ ...s, chargeStrength: -v }))}
+                  />
+
+                  <RangeControl
+                    label={`Label size: ${graphSettings.threeDLabelSize.toFixed(1)}`}
+                    min={3}
+                    max={10}
+                    step={0.5}
+                    value={graphSettings.threeDLabelSize}
+                    onChange={(v) => setGraphSettings(s => ({ ...s, threeDLabelSize: v }))}
+                  />
+
+                  <RangeControl
+                    label={`Link opacity: ${graphSettings.threeDLinkOpacity.toFixed(2)}`}
+                    min={0.1}
+                    max={1}
+                    step={0.05}
+                    value={graphSettings.threeDLinkOpacity}
+                    onChange={(v) => setGraphSettings(s => ({ ...s, threeDLinkOpacity: v }))}
+                  />
+
+                  <ToggleControl
+                    label="Show labels"
+                    checked={graphSettings.showLabels}
+                    onChange={(checked) => setGraphSettings(s => ({ ...s, showLabels: checked }))}
+                  />
+                </>
+              ) : (
+                <>
+                  <div className="text-gray-300 font-semibold">2D controls</div>
+
+                  <RangeControl
+                    label={`Min radius: ${graphSettings.minNodeRadius}`}
+                    min={5}
+                    max={18}
+                    step={1}
+                    value={graphSettings.minNodeRadius}
+                    onChange={(v) => setGraphSettings(s => ({ ...s, minNodeRadius: v }))}
+                  />
+
+                  <RangeControl
+                    label={`Max radius: ${graphSettings.maxNodeRadius}`}
+                    min={14}
+                    max={36}
+                    step={1}
+                    value={graphSettings.maxNodeRadius}
+                    onChange={(v) => setGraphSettings(s => ({ ...s, maxNodeRadius: Math.max(v, s.minNodeRadius + 2) }))}
+                  />
+
+                  <RangeControl
+                    label={`Link distance: ${graphSettings.linkDistance}`}
+                    min={60}
+                    max={220}
+                    step={5}
+                    value={graphSettings.linkDistance}
+                    onChange={(v) => setGraphSettings(s => ({ ...s, linkDistance: v }))}
+                  />
+
+                  <RangeControl
+                    label={`Link strength: ${graphSettings.linkStrength.toFixed(2)}`}
+                    min={0.1}
+                    max={1}
+                    step={0.05}
+                    value={graphSettings.linkStrength}
+                    onChange={(v) => setGraphSettings(s => ({ ...s, linkStrength: v }))}
+                  />
+
+                  <RangeControl
+                    label={`Repulsion: ${Math.round(Math.abs(graphSettings.chargeStrength))}`}
+                    min={80}
+                    max={800}
+                    step={10}
+                    value={Math.abs(graphSettings.chargeStrength)}
+                    onChange={(v) => setGraphSettings(s => ({ ...s, chargeStrength: -v }))}
+                  />
+
+                  <ToggleControl
+                    label="Show labels"
+                    checked={graphSettings.showLabels}
+                    onChange={(checked) => setGraphSettings(s => ({ ...s, showLabels: checked }))}
+                  />
+
+                  <ToggleControl
+                    label="Show packet badges"
+                    checked={graphSettings.showPacketBadges}
+                    onChange={(checked) => setGraphSettings(s => ({ ...s, showPacketBadges: checked }))}
+                  />
+                </>
+              )}
 
               <button
                 onClick={() => setGraphSettings(DEFAULT_GRAPH_SETTINGS)}
