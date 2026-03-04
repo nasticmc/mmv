@@ -21,16 +21,17 @@ It listens to MeshCore packets from MQTT, infers node/edge relationships from pa
 
 ```text
 MQTT broker
-   (meshcore/+/+/raw)
+   (meshcore/+/+/packets)
           |
           v
  Node.js backend (Express + ws)
+   - JSON envelope parsing
    - packet decode + processing
    - SQLite persistence
    - REST + WebSocket
           |
           v
- React frontend (Vite + D3)
+ React frontend (Vite + D3 + Three.js)
 ```
 
 ## Repository layout
@@ -62,7 +63,7 @@ Edit `.env` as needed (MQTT broker and auth).
 | `MQTT_USERNAME` | _(unset)_ | Optional MQTT username |
 | `MQTT_PASSWORD` | _(unset)_ | Optional MQTT password |
 | `MQTT_CLIENT_ID` | `mmv-<random>` | MQTT client ID |
-| `MQTT_RAW_TOPIC` | `meshcore/+/+/raw` | MQTT topic for raw packets |
+| `MQTT_TOPIC` | `meshcore/+/+/packets` | MQTT topic for packet JSON messages |
 | `MQTT_OBSERVERS` | _(unset)_ | Comma-separated observer public keys/prefixes to pre-create observer nodes |
 | `PORT` | `3001` | Backend HTTP/WebSocket port |
 | `DB_PATH` | `./data/mmv.db` | SQLite database path |
@@ -112,7 +113,7 @@ Message types:
 - `node` — incremental node update
 - `edge` — incremental edge update
 - `stats` — periodic stats broadcast
-- `packet` — packet activity event (`packetType`, `hash`, `pathLen`)
+- `packet` — packet activity event (`packetType`, `hash`, `pathLen`, `path`, `duration`)
 - `debug` — backend log events (`info`/`warn`/`error`)
 
 ## Data model
@@ -126,10 +127,13 @@ SQLite tables:
 
 ## Packet processing behavior
 
-- Raw payloads are decoded with `@michaelhart/meshcore-decoder`
-- Path hops produce node touches and directed edge touches
+- MQTT messages on the `/packets` topic are JSON envelopes containing a `raw` hex field and metadata (SNR, RSSI, duration, etc.)
+- The `raw` hex is decoded with `@michaelhart/meshcore-decoder`
+- Path hops (from the decoded packet) produce node touches and directed edge touches
+- Path entries are normalized via `normalizeHash()` which handles both byte values (0-255) and hex strings
 - Observer key from MQTT topic is normalized and linked as final hop when applicable
 - `Advert` packets enrich node metadata and may add an advert→path edge when needed
+- `duration` from the envelope is forwarded to the frontend for packet animation
 - Invalid/malformed packets are ignored safely
 
 ## Notes

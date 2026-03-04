@@ -9,6 +9,7 @@ export interface ProcessResult {
   edges: EdgeRow[];
   packetType: string;
   hash: string;
+  path: string[];
 }
 
 const PAYLOAD_TYPE_NAMES: Record<number, string> = {
@@ -37,25 +38,6 @@ function normalizeHash(value: unknown): string | null {
   const cleaned = value.trim().toLowerCase().replace(/^0x/, '');
   if (!/^[0-9a-f]{2}$/.test(cleaned)) return null;
   return cleaned;
-}
-
-function findPathInDecoded(obj: Record<string, unknown>): unknown[] | null {
-  const direct = obj.path;
-  if (Array.isArray(direct)) return direct;
-
-  const packet = obj.packet;
-  if (packet && typeof packet === 'object') {
-    const nested = (packet as Record<string, unknown>).path;
-    if (Array.isArray(nested)) return nested;
-  }
-
-  const decoded = obj.decoded;
-  if (decoded && typeof decoded === 'object') {
-    const nested = (decoded as Record<string, unknown>).path;
-    if (Array.isArray(nested)) return nested;
-  }
-
-  return null;
 }
 
 function applyPathAndObserver(path: string[], observerKey: string | undefined, now: number): { nodes: NodeRow[]; edges: EdgeRow[] } {
@@ -93,27 +75,6 @@ function applyPathAndObserver(path: string[], observerKey: string | undefined, n
   return { nodes: updatedNodes, edges: updatedEdges };
 }
 
-export function extractHex(raw: Buffer | string): string | null {
-  const str = Buffer.isBuffer(raw) ? raw.toString('utf-8').trim() : String(raw).trim();
-
-  if (str.startsWith('{')) {
-    try {
-      const obj = JSON.parse(str) as Record<string, unknown>;
-      const hex = obj.hex ?? obj.data ?? obj.packet ?? obj.payload;
-      if (typeof hex === 'string') return hex.trim().replace(/\s+/g, '');
-    } catch {
-      // fall through to raw hex
-    }
-  }
-
-  const cleaned = str.replace(/\s+/g, '');
-  if (/^[0-9a-fA-F]+$/.test(cleaned) && cleaned.length >= 4) {
-    return cleaned;
-  }
-
-  return null;
-}
-
 export function processPacket(hex: string, observerKey?: string): ProcessResult | null {
   let packet;
   try {
@@ -126,7 +87,9 @@ export function processPacket(hex: string, observerKey?: string): ProcessResult 
 
   const now = Date.now();
   const packetType = PAYLOAD_TYPE_NAMES[packet.payloadType] ?? String(packet.payloadType);
-  const path = (packet.path ?? []).map((h) => String(h).toLowerCase());
+  const path = (packet.path ?? [])
+    .map((h) => normalizeHash(h))
+    .filter((h): h is string => h !== null);
 
   const { nodes: updatedNodes, edges: updatedEdges } = applyPathAndObserver(path, observerKey, now);
 
@@ -163,39 +126,6 @@ export function processPacket(hex: string, observerKey?: string): ProcessResult 
     edges: updatedEdges,
     packetType,
     hash: packet.messageHash,
+    path,
   };
-}
-
-export function processDecodedPacket(raw: Buffer | string, observerKey?: string): ProcessResult | null {
-  const str = Buffer.isBuffer(raw) ? raw.toString('utf-8').trim() : String(raw).trim();
-  if (!str.startsWith('{')) return null;
-
-  let obj: Record<string, unknown>;
-  try {
-    obj = JSON.parse(str) as Record<string, unknown>;
-  } catch {
-    return null;
-  }
-
-  const pathRaw = findPathInDecoded(obj);
-  if (!pathRaw) return null;
-
-  const path = pathRaw
-    .map((entry) => normalizeHash(entry))
-    .filter((entry): entry is string => entry !== null);
-
-  if (path.length === 0) return null;
-
-  const packetTypeRaw = obj.payloadType ?? obj.type ?? (obj.packet && typeof obj.packet === 'object' ? (obj.packet as Record<string, unknown>).payloadType : undefined);
-  const packetType = typeof packetTypeRaw === 'number'
-    ? (PAYLOAD_TYPE_NAMES[packetTypeRaw] ?? String(packetTypeRaw))
-    : (typeof packetTypeRaw === 'string' ? packetTypeRaw : 'DecodedPacket');
-
-  const hashRaw = obj.messageHash ?? obj.hash ?? (obj.packet && typeof obj.packet === 'object' ? (obj.packet as Record<string, unknown>).messageHash : undefined);
-  const hash = typeof hashRaw === 'string' && hashRaw.length > 0 ? hashRaw : `decoded-${Date.now().toString(16)}`;
-
-  const now = Date.now();
-  const { nodes, edges } = applyPathAndObserver(path, observerKey, now);
-
-  return { nodes, edges, packetType, hash };
 }

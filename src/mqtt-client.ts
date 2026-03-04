@@ -1,13 +1,12 @@
 import mqtt from 'mqtt';
-import { extractHex, processPacket } from './processor.js';
+import { processPacket } from './processor.js';
 import { broadcastNode, broadcastEdge, broadcastStats, broadcastPacket, debugLog } from './ws-broadcast.js';
 import { touchNode } from './db.js';
 import { hashFromKeyPrefix } from './hash-utils.js';
 
 const MQTT_URL = process.env.MQTT_URL ?? 'mqtt://mqtt.eastmesh.au:1883';
-const MQTT_RAW_TOPIC = process.env.MQTT_RAW_TOPIC ?? 'meshcore/+/+/raw';
+const MQTT_TOPIC = process.env.MQTT_TOPIC ?? 'meshcore/+/+/packets';
 
-let packetCount = 0;
 let statsTimer: ReturnType<typeof setInterval> | null = null;
 
 function prepopulateObserverNodes(): void {
@@ -49,11 +48,11 @@ export function startMqtt(): mqtt.MqttClient {
     debugLog.info(`[mqtt] connected to ${MQTT_URL}`);
     prepopulateObserverNodes();
 
-    client.subscribe(MQTT_RAW_TOPIC, (err) => {
+    client.subscribe(MQTT_TOPIC, (err) => {
       if (err) {
-        debugLog.error(`[mqtt] subscribe error (${MQTT_RAW_TOPIC}): ${err.message}`);
+        debugLog.error(`[mqtt] subscribe error (${MQTT_TOPIC}): ${err.message}`);
       } else {
-        debugLog.info(`[mqtt] subscribed to ${MQTT_RAW_TOPIC}`);
+        debugLog.info(`[mqtt] subscribed to ${MQTT_TOPIC}`);
       }
     });
   });
@@ -76,11 +75,27 @@ export function startMqtt(): mqtt.MqttClient {
     }
 
     let result = null;
+    let duration: number | null = null;
 
-    if (streamType === 'raw') {
-      const hex = extractHex(payload);
-      if (!hex) return;
-      result = processPacket(hex, observerKey);
+    if (streamType === 'packets') {
+      let envelope: Record<string, unknown>;
+      try {
+        envelope = JSON.parse(payload.toString('utf-8')) as Record<string, unknown>;
+      } catch {
+        debugLog.warn(`[mqtt] failed to parse JSON from ${topic}`);
+        return;
+      }
+
+      const raw = envelope.raw;
+      if (typeof raw !== 'string' || raw.length < 4) {
+        debugLog.warn(`[mqtt] missing or invalid "raw" field in packet envelope`);
+        return;
+      }
+
+      result = processPacket(raw, observerKey);
+      const durationRaw = envelope.duration;
+      duration = typeof durationRaw === 'string' ? Number(durationRaw) : (typeof durationRaw === 'number' ? durationRaw : null);
+      if (duration !== null && !Number.isFinite(duration)) duration = null;
     } else {
       debugLog.info(`[mqtt] skipping unsupported stream: ${topic}`);
       return;
@@ -88,11 +103,9 @@ export function startMqtt(): mqtt.MqttClient {
 
     if (!result) return;
 
-    packetCount++;
-
     for (const node of result.nodes) broadcastNode(node);
     for (const edge of result.edges) broadcastEdge(edge);
-    broadcastPacket(result.packetType, result.hash, result.edges.length);
+    broadcastPacket(result.packetType, result.hash, result.path.length, result.path, duration);
   });
 
   statsTimer = setInterval(() => {

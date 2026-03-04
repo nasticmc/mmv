@@ -29,6 +29,8 @@ export interface PacketEvent {
   packetType: string;
   hash: string;
   pathLen: number;
+  path: string[];
+  duration: number | null;
   receivedAt: number;
 }
 
@@ -69,5 +71,5 @@ export type WsMessage =
   | { type: 'node'; node: NodeData }
   | { type: 'edge'; edge: EdgeData }
   | { type: 'stats'; stats: StatsData }
-  | { type: 'packet'; packetType: string; hash: string; pathLen: number }
+  | { type: 'packet'; packetType: string; hash: string; pathLen: number; path: string[]; duration: number | null }
   | { type: 'debug'; level: 'info' | 'warn' | 'error'; message: string; ts: number };

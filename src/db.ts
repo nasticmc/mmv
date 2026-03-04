@@ -167,12 +167,19 @@ export function applyAdvert(
   return hash;
 }
 
+const selectAllNodes = db.prepare('SELECT * FROM nodes ORDER BY last_seen DESC');
+const selectAllEdges = db.prepare('SELECT * FROM edges');
+const countNodes = db.prepare('SELECT COUNT(*) as c FROM nodes');
+const countEdges = db.prepare('SELECT COUNT(*) as c FROM edges');
+const countAdverts = db.prepare('SELECT COUNT(*) as c FROM adverts');
+const countNamedNodes = db.prepare("SELECT COUNT(*) as c FROM nodes WHERE name IS NOT NULL");
+
 export function getAllNodes(): NodeRow[] {
-  return db.prepare('SELECT * FROM nodes ORDER BY last_seen DESC').all() as unknown as NodeRow[];
+  return selectAllNodes.all() as unknown as NodeRow[];
 }
 
 export function getAllEdges(): EdgeRow[] {
-  return db.prepare('SELECT * FROM edges').all() as unknown as EdgeRow[];
+  return selectAllEdges.all() as unknown as EdgeRow[];
 }
 
 export function getStats(): {
@@ -181,12 +188,10 @@ export function getStats(): {
   advertCount: number;
   namedNodeCount: number;
 } {
-  const nodeCount = (db.prepare('SELECT COUNT(*) as c FROM nodes').get() as { c: number }).c;
-  const edgeCount = (db.prepare('SELECT COUNT(*) as c FROM edges').get() as { c: number }).c;
-  const advertCount = (db.prepare('SELECT COUNT(*) as c FROM adverts').get() as { c: number }).c;
-  const namedNodeCount = (
-    db.prepare("SELECT COUNT(*) as c FROM nodes WHERE name IS NOT NULL").get() as { c: number }
-  ).c;
+  const nodeCount = (countNodes.get() as { c: number }).c;
+  const edgeCount = (countEdges.get() as { c: number }).c;
+  const advertCount = (countAdverts.get() as { c: number }).c;
+  const namedNodeCount = (countNamedNodes.get() as { c: number }).c;
   return { nodeCount, edgeCount, advertCount, namedNodeCount };
 }
 
