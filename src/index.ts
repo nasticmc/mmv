@@ -41,12 +41,18 @@ app.get('/api/graph', (_req, res) => {
 
 app.get('/api/config', (_req, res) => {
   const geoEnabled = process.env.GEO_ENABLED !== 'false';
+  const packetAnimationEnabled = process.env.PACKET_ANIMATION_ENABLED !== 'false';
+  const packetAnimationMaxRaw = process.env.PACKET_ANIMATION_MAX;
+  const packetAnimationMaxParsed = packetAnimationMaxRaw ? parseInt(packetAnimationMaxRaw, 10) : 60;
+  const packetAnimationMax = Number.isFinite(packetAnimationMaxParsed)
+    ? Math.max(10, Math.min(packetAnimationMaxParsed, 200))
+    : 60;
   const centerLat = process.env.CENTER_LAT ? parseFloat(process.env.CENTER_LAT) : null;
   const centerLon = process.env.CENTER_LON ? parseFloat(process.env.CENTER_LON) : null;
   const geoCenter = (geoEnabled && centerLat != null && !isNaN(centerLat) && centerLon != null && !isNaN(centerLon))
     ? { lat: centerLat, lng: centerLon }
     : null;
-  res.json({ mqttDisplayName: getMqttDisplayName(), geoEnabled, geoCenter });
+  res.json({ mqttDisplayName: getMqttDisplayName(), geoEnabled, geoCenter, packetAnimationEnabled, packetAnimationMax });
 });
 
 // Serve built frontend if client/dist exists (in dev, Vite serves the client on its own port)

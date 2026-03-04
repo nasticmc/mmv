@@ -67,6 +67,8 @@ Edit `.env` as needed (MQTT broker and auth).
 | `MQTT_OBSERVERS` | _(unset)_ | Comma-separated observer public keys/prefixes to pre-create observer nodes |
 | `MQTT_DISPLAY_NAME` | _(unset)_ | Override broker label shown in the UI (defaults to hostname from `MQTT_URL`) |
 | `PORT` | `3001` | Backend HTTP/WebSocket port |
+| `PACKET_ANIMATION_ENABLED` | `true` | Hard override for packet animation UI (`false` disables animation regardless of frontend toggle) |
+| `PACKET_ANIMATION_MAX` | `60` | Max packet animations rendered/queued at once in the frontend (clamped 10-200) |
 | `DB_PATH` | `./data/mmv.db` | SQLite database path |
 | `VITE_PORT` | `9001` | Vite dev server port (client only) |
 

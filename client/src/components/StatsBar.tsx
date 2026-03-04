@@ -9,35 +9,30 @@ interface Props {
 
 export function StatsBar({ stats, connected, packetRate, mqttDisplayName }: Props) {
   return (
-    <div className="flex items-center gap-6 px-4 py-2 bg-gray-900 border-b border-gray-800 text-sm font-mono shrink-0">
-      {/* Title */}
-      <span className="text-gray-300 font-semibold tracking-wide">🕸 MMV</span>
+    <div className="px-3 py-2 bg-gray-900 border-b border-gray-800 font-mono shrink-0">
+      <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm">
+        <span className="text-gray-300 font-semibold tracking-wide">🕸 MMV</span>
 
-      {/* MQTT status */}
-      <div className="flex items-center gap-1.5">
-        <span
-          className={`w-2 h-2 rounded-full ${connected ? 'bg-green-500 shadow-[0_0_6px_#22c55e]' : 'bg-red-500'}`}
-        />
-        <span className={connected ? 'text-green-400' : 'text-red-400'}>
-          {connected ? 'live' : 'offline'}
-        </span>
+        <div className="flex items-center gap-1.5">
+          <span
+            className={`w-2 h-2 rounded-full ${connected ? 'bg-green-500 shadow-[0_0_6px_#22c55e]' : 'bg-red-500'}`}
+          />
+          <span className={connected ? 'text-green-400' : 'text-red-400'}>
+            {connected ? 'live' : 'offline'}
+          </span>
+        </div>
+
+        <Stat label="nodes" value={stats.nodeCount} />
+        <Stat label="named" value={stats.namedNodeCount} />
+        <Stat label="edges" value={stats.edgeCount} />
+        <Stat label="adverts" value={stats.advertCount} />
+
+        {packetRate > 0 && <Stat label="pkt/min" value={packetRate} color="text-yellow-400" />}
       </div>
 
-      <div className="w-px h-4 bg-gray-700" />
-
-      <Stat label="nodes" value={stats.nodeCount} />
-      <Stat label="named" value={stats.namedNodeCount} />
-      <Stat label="edges" value={stats.edgeCount} />
-      <Stat label="adverts" value={stats.advertCount} />
-
-      {packetRate > 0 && (
-        <>
-          <div className="w-px h-4 bg-gray-700" />
-          <Stat label="pkt/min" value={packetRate} color="text-yellow-400" />
-        </>
-      )}
-
-      <div className="ml-auto text-gray-600 text-xs">{mqttDisplayName}</div>
+      <div className="mt-1 text-[11px] text-gray-600 truncate" title={mqttDisplayName}>
+        {mqttDisplayName}
+      </div>
     </div>
   );
 }

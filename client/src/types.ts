@@ -28,6 +28,7 @@ export interface StatsData {
 }
 
 export interface PacketEvent {
+  id: number;
   packetType: string;
   hash: string;
   pathLen: number;

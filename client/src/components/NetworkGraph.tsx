@@ -1,6 +1,6 @@
 import { useEffect, useRef } from 'react';
 import * as d3 from 'd3';
-import type { NodeData, EdgeData } from '../types';
+import type { NodeData, EdgeData, PacketEvent } from '../types';
 import { ROLE_COLORS } from '../types';
 
 export interface GraphSettings {
@@ -16,28 +16,17 @@ export interface GraphSettings {
   threeDLabelSize: number;
   orbit: boolean;
   geoInfluence: number;
+  showPacketAnimation: boolean;
+  maxRenderedPackets: number;
 }
 
-/**
- * Projects node lat/lng to a centred coordinate space (range ≈ [-scale/2, scale/2]).
- * Returns a Map of hash → {x, y} for nodes that have location data.
- *
- * Centre point: uses the provided override if supplied, otherwise the centroid
- * (mean lat/lng) of all located nodes. Using the centroid rather than the
- * bounding-box midpoint means a single outlier node doesn't drag the whole
- * projection off-centre.
- *
- * Only exported for reuse by NetworkGraph3D.
- */
 export function projectGeo(
   nodes: NodeData[],
   scale = 400,
   center?: { lat: number; lng: number },
 ): Map<string, { x: number; y: number }> {
   type Located = NodeData & { latitude: number; longitude: number };
-  const located = nodes.filter(
-    (n): n is Located => n.latitude != null && n.longitude != null
-  );
+  const located = nodes.filter((n): n is Located => n.latitude != null && n.longitude != null);
   if (located.length === 0) return new Map();
 
   const lats = located.map((n) => n.latitude);
@@ -46,7 +35,6 @@ export function projectGeo(
   const minLon = Math.min(...lons), maxLon = Math.max(...lons);
   const span = Math.max(maxLat - minLat, maxLon - minLon) || 1;
 
-  // Use override center, or fall back to the mean of all located nodes.
   const midLat = center?.lat ?? located.reduce((s, n) => s + n.latitude, 0) / located.length;
   const midLon = center?.lng ?? located.reduce((s, n) => s + n.longitude, 0) / located.length;
 
@@ -54,7 +42,7 @@ export function projectGeo(
   for (const n of located) {
     result.set(n.hash, {
       x: ((n.longitude - midLon) / span) * scale,
-      y: -((n.latitude - midLat) / span) * scale, // invert: lat↑ = y↓
+      y: -((n.latitude - midLat) / span) * scale,
     });
   }
   return result;
@@ -66,6 +54,8 @@ interface Props {
   selectedId: string | null;
   onSelect: (id: string | null) => void;
   settings: GraphSettings;
+  recentPackets: PacketEvent[];
+  packetAnimationEnabled: boolean;
   geoCenter?: { lat: number; lng: number } | null;
 }
 
@@ -84,6 +74,13 @@ interface SimEdge extends EdgeData {
   bidirectional: boolean;
 }
 
+interface ActivePacket {
+  id: number;
+  path: string[];
+  startedAt: number;
+  totalDurationMs: number;
+}
+
 function nodeRadius(settings: GraphSettings): number {
   return settings.minNodeRadius;
 }
@@ -92,16 +89,28 @@ function edgeWidth(e: EdgeData): number {
   return Math.max(1, Math.min(e.packet_count / 8, 6));
 }
 
-export function NetworkGraph({ nodes, edges, selectedId, onSelect, settings, geoCenter }: Props) {
+function totalDurationMs(packet: PacketEvent): number {
+  const hopCount = Math.max(1, packet.path.length - 1);
+  if (packet.duration != null && Number.isFinite(packet.duration)) {
+    return Math.max(120, Math.min(packet.duration, 6000));
+  }
+  return Math.max(200, Math.min(hopCount * 250, 4000));
+}
+
+export function NetworkGraph({ nodes, edges, selectedId, onSelect, settings, recentPackets, packetAnimationEnabled, geoCenter }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   const simRef = useRef<d3.Simulation<SimNode, SimEdge> | null>(null);
   const zoomGRef = useRef<d3.Selection<SVGGElement, unknown, null, undefined> | null>(null);
   const linkRef = useRef<d3.Selection<SVGLineElement, SimEdge, SVGGElement, unknown> | null>(null);
   const nodeRef = useRef<d3.Selection<SVGGElement, SimNode, SVGGElement, unknown> | null>(null);
+  const packetRef = useRef<d3.Selection<SVGCircleElement, ActivePacket, SVGGElement, unknown> | null>(null);
   const simNodesRef = useRef<SimNode[]>([]);
   const posRef = useRef<Map<string, { x: number; y: number }>>(new Map());
   const topologyKeyRef = useRef('');
   const forceKeyRef = useRef('');
+  const activePacketsRef = useRef<ActivePacket[]>([]);
+  const consumedPacketIdRef = useRef(-1);
+  const packetRafRef = useRef<number | null>(null);
 
   useEffect(() => {
     const container = containerRef.current;
@@ -132,9 +141,11 @@ export function NetworkGraph({ nodes, edges, selectedId, onSelect, settings, geo
     svg.on('click', () => onSelect(null));
 
     const linkLayer = zoomG.append('g').attr('class', 'links');
+    const packetLayer = zoomG.append('g').attr('class', 'packets');
     const nodeLayer = zoomG.append('g').attr('class', 'nodes');
 
     linkRef.current = linkLayer.selectAll<SVGLineElement, SimEdge>('line');
+    packetRef.current = packetLayer.selectAll<SVGCircleElement, ActivePacket>('circle');
     nodeRef.current = nodeLayer.selectAll<SVGGElement, SimNode>('g');
 
     const sim = d3
@@ -159,10 +170,11 @@ export function NetworkGraph({ nodes, edges, selectedId, onSelect, settings, geo
 
     return () => {
       sim.stop();
+      if (packetRafRef.current !== null) cancelAnimationFrame(packetRafRef.current);
       d3.select(container).selectAll('*').remove();
       simRef.current = null;
     };
-  }, [onSelect]);
+  }, [onSelect, settings.chargeStrength]);
 
   useEffect(() => {
     const sim = simRef.current;
@@ -181,25 +193,21 @@ export function NetworkGraph({ nodes, edges, selectedId, onSelect, settings, geo
         Object.assign(existing, n);
         return existing;
       }
-      const saved = posRef.current.get(n.hash);
-      const geo = geoMap.get(n.hash);
+      const prior = posRef.current.get(n.hash);
       return {
         ...n,
-        x: saved?.x ?? (geo ? W / 2 + geo.x : W / 2 + (Math.random() - 0.5) * 120),
-        y: saved?.y ?? (geo ? H / 2 + geo.y : H / 2 + (Math.random() - 0.5) * 120),
+        x: prior?.x ?? (W / 2 + (Math.random() - 0.5) * 80),
+        y: prior?.y ?? (H / 2 + (Math.random() - 0.5) * 80),
         vx: 0,
         vy: 0,
         fx: null,
         fy: null,
       };
     });
-
     simNodesRef.current = simNodes;
 
     const nodeById = new Map(simNodes.map((n) => [n.hash, n]));
 
-    // Deduplicate bidirectional edges: if A→B and B→A both exist, keep one entry
-    // and mark it bidirectional rather than drawing two overlapping lines.
     const seenPairs = new Map<string, SimEdge>();
     for (const e of edges) {
       if (!nodeById.has(e.from_hash) || !nodeById.has(e.to_hash)) continue;
@@ -272,8 +280,6 @@ export function NetworkGraph({ nodes, edges, selectedId, onSelect, settings, geo
     const linkForce = sim.force<d3.ForceLink<SimNode, SimEdge>>('link');
     linkForce?.links(simEdges).distance(settings.linkDistance).strength(settings.linkStrength);
 
-    // Degree-weighted repulsion: high-degree hub nodes repel harder, pushing them
-    // outward to form the skeleton while leaf nodes stay near their hub.
     const degreeMap = new Map<string, number>();
     for (const e of simEdges) {
       degreeMap.set(e.from_hash, (degreeMap.get(e.from_hash) ?? 0) + 1);
@@ -287,8 +293,6 @@ export function NetworkGraph({ nodes, edges, selectedId, onSelect, settings, geo
 
     sim.force<d3.ForceCollide<SimNode>>('collide')?.radius(() => nodeRadius(settings) + 10);
 
-    // Geo-attraction forces: pull each located node gently toward its projected
-    // geographic position. Nodes without location data are unaffected (strength 0).
     if (settings.geoInfluence > 0 && geoMap.size > 0) {
       sim.force('geoX',
         d3.forceX<SimNode>((n) => {
@@ -327,7 +331,7 @@ export function NetworkGraph({ nodes, edges, selectedId, onSelect, settings, geo
       topologyKeyRef.current = topologyKey;
       forceKeyRef.current = forceKey;
     }
-  }, [nodes, edges, onSelect, settings]);
+  }, [nodes, edges, onSelect, settings, geoCenter]);
 
   useEffect(() => {
     nodeRef.current?.select<SVGCircleElement>('circle.glow')
@@ -348,6 +352,92 @@ export function NetworkGraph({ nodes, edges, selectedId, onSelect, settings, geo
       .text((d) => (settings.showPacketBadges && d.packet_count > 0 ? d.packet_count : ''))
       .attr('dy', nodeRadius(settings) + 14);
   }, [nodes, selectedId, settings]);
+
+  useEffect(() => {
+    const zoomG = zoomGRef.current;
+    if (!zoomG) return;
+
+    const shouldAnimate = packetAnimationEnabled && settings.showPacketAnimation;
+    if (!shouldAnimate) {
+      activePacketsRef.current = [];
+      packetRef.current = zoomG.select<SVGGElement>('g.packets').selectAll<SVGCircleElement, ActivePacket>('circle');
+      packetRef.current.data([]).join('circle');
+      if (packetRafRef.current !== null) {
+        cancelAnimationFrame(packetRafRef.current);
+        packetRafRef.current = null;
+      }
+      return;
+    }
+
+    for (const packet of recentPackets) {
+      if (packet.id <= consumedPacketIdRef.current) continue;
+      consumedPacketIdRef.current = packet.id;
+      if (packet.path.length < 2) continue;
+      activePacketsRef.current.push({
+        id: packet.id,
+        path: packet.path,
+        startedAt: Date.now(),
+        totalDurationMs: totalDurationMs(packet),
+      });
+    }
+
+    if (activePacketsRef.current.length > settings.maxRenderedPackets) {
+      activePacketsRef.current = activePacketsRef.current.slice(-settings.maxRenderedPackets);
+    }
+
+    const packetLayer = zoomG.select<SVGGElement>('g.packets');
+
+    const tick = () => {
+      const now = Date.now();
+      activePacketsRef.current = activePacketsRef.current.filter((p) => now - p.startedAt < p.totalDurationMs);
+
+      packetRef.current = packetLayer
+        .selectAll<SVGCircleElement, ActivePacket>('circle')
+        .data(activePacketsRef.current, (p) => String(p.id))
+        .join('circle')
+        .attr('r', 3)
+        .attr('fill', '#fde047')
+        .attr('stroke', '#f59e0b')
+        .attr('stroke-width', 1.2)
+        .attr('opacity', 0.95)
+        .attr('pointer-events', 'none')
+        .attr('cx', (p) => {
+          const elapsed = now - p.startedAt;
+          const segmentCount = p.path.length - 1;
+          const segmentDuration = p.totalDurationMs / segmentCount;
+          const segmentIndex = Math.min(segmentCount - 1, Math.floor(elapsed / segmentDuration));
+          const progress = Math.max(0, Math.min(1, (elapsed - segmentIndex * segmentDuration) / segmentDuration));
+          const from = posRef.current.get(p.path[segmentIndex]);
+          const to = posRef.current.get(p.path[segmentIndex + 1]);
+          if (!from || !to) return -9999;
+          return from.x + (to.x - from.x) * progress;
+        })
+        .attr('cy', (p) => {
+          const elapsed = now - p.startedAt;
+          const segmentCount = p.path.length - 1;
+          const segmentDuration = p.totalDurationMs / segmentCount;
+          const segmentIndex = Math.min(segmentCount - 1, Math.floor(elapsed / segmentDuration));
+          const progress = Math.max(0, Math.min(1, (elapsed - segmentIndex * segmentDuration) / segmentDuration));
+          const from = posRef.current.get(p.path[segmentIndex]);
+          const to = posRef.current.get(p.path[segmentIndex + 1]);
+          if (!from || !to) return -9999;
+          return from.y + (to.y - from.y) * progress;
+        });
+
+      packetRafRef.current = requestAnimationFrame(tick);
+    };
+
+    if (packetRafRef.current === null) {
+      packetRafRef.current = requestAnimationFrame(tick);
+    }
+
+    return () => {
+      if (packetRafRef.current !== null) {
+        cancelAnimationFrame(packetRafRef.current);
+        packetRafRef.current = null;
+      }
+    };
+  }, [recentPackets, packetAnimationEnabled, settings.showPacketAnimation, settings.maxRenderedPackets]);
 
   return <div ref={containerRef} className="flex-1 relative overflow-hidden" style={{ minHeight: 0 }} />;
 }
