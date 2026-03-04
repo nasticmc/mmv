@@ -91,36 +91,12 @@ export function NetworkGraph({ nodes, edges, selectedId, onSelect, settings }: P
     linkRef.current = linkLayer.selectAll<SVGLineElement, SimEdge>('line');
     nodeRef.current = nodeLayer.selectAll<SVGGElement, SimNode>('g');
 
-    // Cluster force: pulls nodes of the same device_role toward their role's centroid.
-    // Uses simNodesRef so it always reads current positions without re-registration.
-    const clusterForce = (alpha: number) => {
-      const sn = simNodesRef.current;
-
-      const centroids = new Map<number, { x: number; y: number; n: number }>();
-      for (const n of sn) {
-        const r = n.device_role;
-        if (!centroids.has(r)) centroids.set(r, { x: 0, y: 0, n: 0 });
-        const c = centroids.get(r)!;
-        c.x += n.x; c.y += n.y; c.n++;
-      }
-      centroids.forEach(c => { c.x /= c.n; c.y /= c.n; });
-
-      const k = 0.08 * alpha;
-      for (const n of sn) {
-        const c = centroids.get(n.device_role);
-        if (!c) continue;
-        n.vx += (c.x - n.x) * k;
-        n.vy += (c.y - n.y) * k;
-      }
-    };
-
     const sim = d3
       .forceSimulation<SimNode>([])
       .force('link', d3.forceLink<SimNode, SimEdge>([]).id((d) => d.hash))
       .force('charge', d3.forceManyBody<SimNode>().strength(settings.chargeStrength))
       .force('center', d3.forceCenter(W / 2, H / 2).strength(0.05))
-      .force('collide', d3.forceCollide<SimNode>(() => nodeRadius(settings) + 10))
-      .force('cluster', clusterForce);
+      .force('collide', d3.forceCollide<SimNode>(() => nodeRadius(settings) + 10));
 
     sim.on('tick', () => {
       linkRef.current
