@@ -1,4 +1,5 @@
 import 'dotenv/config';
+import fs from 'fs';
 import http from 'http';
 import path from 'path';
 import express from 'express';
@@ -48,9 +49,9 @@ app.get('/api/config', (_req, res) => {
   res.json({ mqttDisplayName: getMqttDisplayName(), geoEnabled, geoCenter });
 });
 
-// Serve built frontend (production only — in dev, Vite serves the client)
-if (process.env.NODE_ENV === 'production') {
-  const clientDist = path.join(__dirname, '..', 'client', 'dist');
+// Serve built frontend if client/dist exists (in dev, Vite serves the client on its own port)
+const clientDist = path.join(__dirname, '..', 'client', 'dist');
+if (fs.existsSync(clientDist)) {
   app.use(express.static(clientDist));
   app.get('*', (_req, res) => {
     res.sendFile(path.join(clientDist, 'index.html'));
