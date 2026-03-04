@@ -24,7 +24,7 @@ const DEFAULT_GRAPH_SETTINGS: GraphSettings = {
   showPacketBadges: true,
   mode: '3d',
   threeDLinkOpacity: 0.55,
-  threeDLabelSize: 5,
+  threeDLabelSize: 6,
 };
 
 export default function App() {
@@ -93,8 +93,6 @@ export default function App() {
 
           {showVizControls && (
             <div className="mt-2 w-72 max-h-[calc(100vh-8rem)] overflow-y-auto rounded-lg border border-gray-700 bg-gray-900/95 backdrop-blur p-3 text-xs font-mono space-y-3 shadow-2xl">
-              <div className="text-gray-300 font-semibold">Node size is fixed for all nodes.</div>
-
               <ToggleControl
                 label="3D mode"
                 checked={graphSettings.mode === '3d'}

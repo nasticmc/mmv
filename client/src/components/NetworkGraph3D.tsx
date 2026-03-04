@@ -103,6 +103,7 @@ export function NetworkGraph3D({ nodes, edges, selectedId, onSelect, settings }:
 
   // Degree-weighted repulsion: high-degree hub nodes repel harder, pushing them
   // outward to form the skeleton while leaf nodes stay near their hub.
+  // chargeStrength is the strength at the most-connected node; leaf nodes get ~1/3 of that.
   useEffect(() => {
     const fg = fgRef.current;
     if (!fg) return;
@@ -116,10 +117,18 @@ export function NetworkGraph3D({ nodes, edges, selectedId, onSelect, settings }:
     const maxDegree = Math.max(1, ...degreeMap.values());
     fg.d3Force('charge')?.strength((node: { id: string }) => {
       const degree = degreeMap.get(node.id) ?? 0;
-      return -30 * (1 + 2 * (degree / maxDegree));
+      return settings.chargeStrength * (1 + 2 * (degree / maxDegree)) / 3;
     });
     fg.d3ReheatSimulation();
-  }, [graphData.links]);
+  }, [graphData.links, settings.chargeStrength]);
+
+  // Wire link distance and strength into the 3D force simulation.
+  useEffect(() => {
+    const fg = fgRef.current;
+    if (!fg) return;
+    fg.d3Force('link')?.distance(settings.linkDistance).strength(settings.linkStrength);
+    fg.d3ReheatSimulation();
+  }, [settings.linkDistance, settings.linkStrength]);
 
   return (
     <div ref={containerRef} className="flex-1 relative overflow-hidden" style={{ minHeight: 0 }}>
@@ -157,7 +166,10 @@ export function NetworkGraph3D({ nodes, edges, selectedId, onSelect, settings }:
             let sprite = spriteMapRef.current.get(graphNode.hash);
             if (!sprite || sprite.text !== label || sprite.textHeight !== settings.threeDLabelSize) {
               sprite = new SpriteText(label);
-              sprite.color = '#9ca3af';
+              sprite.color = '#ffffff';
+              sprite.backgroundColor = 'rgba(0,0,0,0.55)';
+              sprite.padding = 1.5;
+              sprite.borderRadius = 2;
               sprite.textHeight = settings.threeDLabelSize;
               spriteMapRef.current.set(graphNode.hash, sprite);
             }
