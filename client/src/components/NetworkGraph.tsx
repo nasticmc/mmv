@@ -36,6 +36,7 @@ interface SimNode extends NodeData {
 interface SimEdge extends EdgeData {
   source: SimNode;
   target: SimNode;
+  bidirectional: boolean;
 }
 
 function nodeRadius(settings: GraphSettings): number {
@@ -148,14 +149,30 @@ export function NetworkGraph({ nodes, edges, selectedId, onSelect, settings }: P
     simNodesRef.current = simNodes;
 
     const nodeById = new Map(simNodes.map((n) => [n.hash, n]));
-    const simEdges: SimEdge[] = edges
-      .filter((e) => nodeById.has(e.from_hash) && nodeById.has(e.to_hash))
-      .map((e) => ({ ...e, source: nodeById.get(e.from_hash)!, target: nodeById.get(e.to_hash)! }));
+
+    // Deduplicate bidirectional edges: if A→B and B→A both exist, keep one entry
+    // and mark it bidirectional rather than drawing two overlapping lines.
+    const seenPairs = new Map<string, SimEdge>();
+    for (const e of edges) {
+      if (!nodeById.has(e.from_hash) || !nodeById.has(e.to_hash)) continue;
+      const canonical = [e.from_hash, e.to_hash].sort().join('<>');
+      if (seenPairs.has(canonical)) {
+        seenPairs.get(canonical)!.bidirectional = true;
+      } else {
+        seenPairs.set(canonical, {
+          ...e,
+          source: nodeById.get(e.from_hash)!,
+          target: nodeById.get(e.to_hash)!,
+          bidirectional: false,
+        });
+      }
+    }
+    const simEdges = [...seenPairs.values()];
 
     const linkLayer = zoomG.select<SVGGElement>('g.links');
     linkRef.current = linkLayer
       .selectAll<SVGLineElement, SimEdge>('line')
-      .data(simEdges, (d) => `${d.from_hash}->${d.to_hash}`)
+      .data(simEdges, (d) => [d.from_hash, d.to_hash].sort().join('<>'))
       .join('line')
       .attr('stroke', '#2563eb')
       .attr('stroke-opacity', 0.7)
@@ -206,7 +223,20 @@ export function NetworkGraph({ nodes, edges, selectedId, onSelect, settings }: P
 
     const linkForce = sim.force<d3.ForceLink<SimNode, SimEdge>>('link');
     linkForce?.links(simEdges).distance(settings.linkDistance).strength(settings.linkStrength);
-    sim.force<d3.ForceManyBody<SimNode>>('charge')?.strength(settings.chargeStrength);
+
+    // Degree-weighted repulsion: high-degree hub nodes repel harder, pushing them
+    // outward to form the skeleton while leaf nodes stay near their hub.
+    const degreeMap = new Map<string, number>();
+    for (const e of simEdges) {
+      degreeMap.set(e.from_hash, (degreeMap.get(e.from_hash) ?? 0) + 1);
+      degreeMap.set(e.to_hash, (degreeMap.get(e.to_hash) ?? 0) + 1);
+    }
+    const maxDegree = Math.max(1, ...degreeMap.values());
+    sim.force<d3.ForceManyBody<SimNode>>('charge')?.strength((node: SimNode) => {
+      const degree = degreeMap.get(node.hash) ?? 0;
+      return settings.chargeStrength * (1 + 2 * (degree / maxDegree));
+    });
+
     sim.force<d3.ForceCollide<SimNode>>('collide')?.radius(() => nodeRadius(settings) + 10);
 
     sim.nodes(simNodes);

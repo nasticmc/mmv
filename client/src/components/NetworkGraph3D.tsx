@@ -30,6 +30,7 @@ function nodeColor(node: NodeData): string {
 
 export function NetworkGraph3D({ nodes, edges, selectedId, onSelect, settings }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
+  const fgRef = useRef<any>(null);
   const nodeMapRef = useRef(new Map<string, GraphNode>());
   const linkMapRef = useRef(new Map<string, GraphLink>());
   // SpriteText cache: avoids recreating 200+ Three.js objects on every data update.
@@ -83,21 +84,13 @@ export function NetworkGraph3D({ nodes, edges, selectedId, onSelect, settings }:
     const nodeSet = new Set(nextNodeMap.keys());
     const nextLinkMap = new Map<string, GraphLink>();
 
+    // Deduplicate bidirectional edges: if A→B and B→A both exist, render one link.
     for (const edge of edges) {
-      if (!nodeSet.has(edge.from_hash) || !nodeSet.has(edge.to_hash)) {
-        continue;
-      }
-
-      const key = `${edge.from_hash}->${edge.to_hash}`;
-      const existing = linkMapRef.current.get(key);
-      if (existing) {
-        nextLinkMap.set(key, existing);
-      } else {
-        nextLinkMap.set(key, {
-          source: edge.from_hash,
-          target: edge.to_hash,
-        });
-      }
+      if (!nodeSet.has(edge.from_hash) || !nodeSet.has(edge.to_hash)) continue;
+      const canonical = [edge.from_hash, edge.to_hash].sort().join('<>');
+      if (nextLinkMap.has(canonical)) continue;
+      const existing = linkMapRef.current.get(canonical);
+      nextLinkMap.set(canonical, existing ?? { source: edge.from_hash, target: edge.to_hash });
     }
 
     linkMapRef.current = nextLinkMap;
@@ -108,10 +101,31 @@ export function NetworkGraph3D({ nodes, edges, selectedId, onSelect, settings }:
     };
   }, [nodes, edges, settings.minNodeRadius]);
 
+  // Degree-weighted repulsion: high-degree hub nodes repel harder, pushing them
+  // outward to form the skeleton while leaf nodes stay near their hub.
+  useEffect(() => {
+    const fg = fgRef.current;
+    if (!fg) return;
+    const degreeMap = new Map<string, number>();
+    for (const link of graphData.links) {
+      const s = typeof link.source === 'object' ? (link.source as GraphNode).id : link.source as string;
+      const t = typeof link.target === 'object' ? (link.target as GraphNode).id : link.target as string;
+      degreeMap.set(s, (degreeMap.get(s) ?? 0) + 1);
+      degreeMap.set(t, (degreeMap.get(t) ?? 0) + 1);
+    }
+    const maxDegree = Math.max(1, ...degreeMap.values());
+    fg.d3Force('charge')?.strength((node: { id: string }) => {
+      const degree = degreeMap.get(node.id) ?? 0;
+      return -30 * (1 + 2 * (degree / maxDegree));
+    });
+    fg.d3ReheatSimulation();
+  }, [graphData.links]);
+
   return (
     <div ref={containerRef} className="flex-1 relative overflow-hidden" style={{ minHeight: 0 }}>
       {size.width > 0 && size.height > 0 && (
         <ForceGraph3D
+          ref={fgRef}
           graphData={graphData}
           width={size.width}
           height={size.height}

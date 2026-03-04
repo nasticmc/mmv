@@ -75,6 +75,10 @@ function applyPathAndObserver(path: string[], observerKey: string | undefined, n
   return { nodes: updatedNodes, edges: updatedEdges };
 }
 
+// When true, packets with a message hash already seen recently are skipped.
+// Controlled by DEDUPE_ENABLED env var (default: false).
+const DEDUPE_ENABLED = (process.env.DEDUPE_ENABLED ?? 'false').toLowerCase() === 'true';
+
 // Bounded set of recently seen packet hashes for deduplication.
 // Caps at SEEN_MAX entries; oldest 10% are evicted when full.
 const SEEN_MAX = 5000;
@@ -103,7 +107,7 @@ export function processPacket(hex: string, observerKey?: string): ProcessResult 
   if (!packet.isValid) return null;
 
   const msgHash = packet.messageHash as string | undefined;
-  if (msgHash && isDuplicate(msgHash)) return null;
+  if (DEDUPE_ENABLED && msgHash && isDuplicate(msgHash)) return null;
 
   const now = Date.now();
   const packetType = PAYLOAD_TYPE_NAMES[packet.payloadType] ?? String(packet.payloadType);
