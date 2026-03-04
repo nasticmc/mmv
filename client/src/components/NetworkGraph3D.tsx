@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState, useEffect } from 'react';
+import { useMemo, useRef, useState, useEffect, useCallback } from 'react';
 import ForceGraph3D from 'react-force-graph-3d';
 import SpriteText from 'three-spritetext';
 import type { EdgeData, NodeData } from '../types';
@@ -36,6 +36,11 @@ function linkEndId(end: string | number | GraphNode | object): string {
   return String(end);
 }
 
+// How long (ms) to wait between pushing graph topology updates to the renderer.
+// This prevents the D3 simulation from reheating on every incoming packet,
+// which is especially important on mobile where reheats cause visible jitter.
+const MESH_REFRESH_MS = 30_000;
+
 export function NetworkGraph3D({
   nodes, edges, selectedId, onSelect, settings, focusKey, focusNodeId,
 }: Props) {
@@ -47,9 +52,10 @@ export function NetworkGraph3D({
   const spriteMapRef = useRef(new Map<string, SpriteText>());
   const [size, setSize] = useState({ width: 0, height: 0 });
 
-  // Kept current in render so the orbit animation closure never goes stale.
-  const graphDataRef = useRef<{ nodes: GraphNode[]; links: GraphLink[] }>({ nodes: [], links: [] });
+  // Kept current in render so closures never go stale.
   const selectedIdRef = useRef(selectedId);
+  const settingsRef = useRef(settings);
+  settingsRef.current = settings;
 
   // Orbit animation state
   const orbitRafRef = useRef<number | null>(null);
@@ -70,6 +76,8 @@ export function NetworkGraph3D({
     return () => observer.disconnect();
   }, []);
 
+  // Build graph objects, preserving existing node positions so the layout
+  // doesn't jump when new data arrives between 30-second display flushes.
   const graphData = useMemo(() => {
     const nextNodeMap = new Map<string, GraphNode>();
 
@@ -119,8 +127,40 @@ export function NetworkGraph3D({
     };
   }, [nodes, edges, settings.minNodeRadius]);
 
-  // Keep refs current so orbit closure always sees the latest positions and selection.
-  graphDataRef.current = graphData;
+  // ---------------------------------------------------------------------------
+  // Throttled display data: we buffer the latest computed graphData but only
+  // push it to the ForceGraph3D renderer every MESH_REFRESH_MS. This stops the
+  // D3 simulation from reheating on every incoming WebSocket packet, preventing
+  // the constant jitter on mobile.
+  // ---------------------------------------------------------------------------
+  const pendingRef = useRef(graphData);
+  pendingRef.current = graphData;
+
+  const [displayData, setDisplayData] = useState<{ nodes: GraphNode[]; links: GraphLink[] }>(
+    () => ({ nodes: [], links: [] })
+  );
+
+  // Flush immediately when the first batch of nodes arrives.
+  const hasNodes = graphData.nodes.length > 0;
+  useEffect(() => {
+    if (hasNodes) {
+      setDisplayData(pendingRef.current);
+    }
+  }, [hasNodes]);
+
+  // After the initial flush, refresh the display every MESH_REFRESH_MS.
+  useEffect(() => {
+    const id = setInterval(() => {
+      setDisplayData({ ...pendingRef.current });
+    }, MESH_REFRESH_MS);
+    return () => clearInterval(id);
+  }, []);
+
+  // Keep orbit animation ref pointing at the throttled display data so the
+  // camera always orbits the visible layout, not the pending one.
+  const graphDataRef = useRef(displayData);
+  graphDataRef.current = displayData;
+
   // Reset orbit angle when selection changes so the camera re-initialises from
   // its current position instead of jumping to a stale angle.
   if (selectedIdRef.current !== selectedId) {
@@ -130,12 +170,13 @@ export function NetworkGraph3D({
 
   // Degree-weighted repulsion: high-degree hub nodes repel harder, pushing them
   // outward to form the skeleton while leaf nodes stay near their hub.
-  // chargeStrength is the strength at the most-connected node; leaf nodes get ~1/3 of that.
+  // Depends on displayData.links so it only re-runs when the renderer actually
+  // receives new topology (every 30 s), not on every incoming packet.
   useEffect(() => {
     const fg = fgRef.current;
     if (!fg) return;
     const degreeMap = new Map<string, number>();
-    for (const link of graphData.links) {
+    for (const link of displayData.links) {
       const s = linkEndId(link.source);
       const t = linkEndId(link.target);
       degreeMap.set(s, (degreeMap.get(s) ?? 0) + 1);
@@ -147,7 +188,7 @@ export function NetworkGraph3D({
       return settings.chargeStrength * (1 + 2 * (degree / maxDegree)) / 3;
     });
     fg.d3ReheatSimulation();
-  }, [graphData.links, settings.chargeStrength]);
+  }, [displayData.links, settings.chargeStrength]);
 
   // Wire link distance and strength into the 3D force simulation.
   useEffect(() => {
@@ -171,6 +212,60 @@ export function NetworkGraph3D({
       1000,
     );
   }, [focusKey]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // When selectedId changes, ask the renderer to re-evaluate node/link colours
+  // using the stable callbacks below. This avoids a full scene rebuild that
+  // would cause nodes to vanish and reappear.
+  useEffect(() => {
+    fgRef.current?.refresh();
+  }, [selectedId]);
+
+  // ---------------------------------------------------------------------------
+  // Stable render callbacks — these close over refs rather than prop values so
+  // their function identity never changes. ForceGraph3D treats new function
+  // references as "everything changed" and rebuilds Three.js objects for every
+  // node, which is what causes the disappear/repopulate flash on search.
+  // ---------------------------------------------------------------------------
+  const nodeColorCb = useCallback((node: object) => {
+    const graphNode = node as GraphNode;
+    return graphNode.hash === selectedIdRef.current ? '#fbbf24' : graphNode.color;
+  }, []);
+
+  const nodeThreeObjectCb = useCallback((node: object) => {
+    const graphNode = node as GraphNode;
+    const s = settingsRef.current;
+    const label = graphNode.name ?? graphNode.hash.toUpperCase();
+    // Reuse cached sprite; only recreate if text or size changed.
+    let sprite = spriteMapRef.current.get(graphNode.hash);
+    if (!sprite || sprite.text !== label || sprite.textHeight !== s.threeDLabelSize) {
+      sprite = new SpriteText(label);
+      sprite.color = '#ffffff';
+      sprite.backgroundColor = 'rgba(0,0,0,0.55)';
+      sprite.padding = 1.5;
+      sprite.borderRadius = 2;
+      sprite.textHeight = s.threeDLabelSize;
+      spriteMapRef.current.set(graphNode.hash, sprite);
+    }
+    // Position label above the sphere. Sphere radius ≈ nodeRelSize * ∛val = 3 * ∛(minNodeRadius/2).
+    sprite.position.y = 3 * Math.cbrt(s.minNodeRadius / 2) + 3;
+    return sprite;
+  }, []); // stable — reads live values from settingsRef
+
+  const linkWidthCb = useCallback((link: object) => {
+    const sel = selectedIdRef.current;
+    if (!sel) return 1.5;
+    const s = linkEndId((link as GraphLink).source);
+    const t = linkEndId((link as GraphLink).target);
+    return s === sel || t === sel ? 3.5 : 1;
+  }, []);
+
+  const linkColorCb = useCallback((link: object) => {
+    const sel = selectedIdRef.current;
+    if (!sel) return '#2563eb';
+    const s = linkEndId((link as GraphLink).source);
+    const t = linkEndId((link as GraphLink).target);
+    return s === sel || t === sel ? '#fbbf24' : '#1e3558';
+  }, []);
 
   // Orbit: slowly rotate camera around the centroid of all nodes.
   useEffect(() => {
@@ -242,7 +337,7 @@ export function NetworkGraph3D({
       {size.width > 0 && size.height > 0 && (
         <ForceGraph3D
           ref={fgRef}
-          graphData={graphData}
+          graphData={displayData}
           width={size.width}
           height={size.height}
           backgroundColor="#030712"
@@ -250,23 +345,10 @@ export function NetworkGraph3D({
             const graphNode = node as GraphNode;
             return `${graphNode.name ?? graphNode.hash.toUpperCase()}\n${graphNode.hash.toUpperCase()}`;
           }}
-          nodeColor={(node) => {
-            const graphNode = node as GraphNode;
-            return graphNode.hash === selectedId ? '#fbbf24' : graphNode.color;
-          }}
+          nodeColor={nodeColorCb}
           nodeRelSize={3}
-          linkWidth={(link) => {
-            if (!selectedId) return 1.5;
-            const s = linkEndId((link as GraphLink).source);
-            const t = linkEndId((link as GraphLink).target);
-            return s === selectedId || t === selectedId ? 3.5 : 1;
-          }}
-          linkColor={(link) => {
-            if (!selectedId) return '#2563eb';
-            const s = linkEndId((link as GraphLink).source);
-            const t = linkEndId((link as GraphLink).target);
-            return s === selectedId || t === selectedId ? '#fbbf24' : '#1e3558';
-          }}
+          linkWidth={linkWidthCb}
+          linkColor={linkColorCb}
           linkOpacity={settings.threeDLinkOpacity}
           onNodeClick={(node) => {
             const graphNode = node as GraphNode;
@@ -276,24 +358,7 @@ export function NetworkGraph3D({
           // nodeThreeObjectExtend keeps the default coloured sphere and adds the
           // sprite as a child above it, rather than replacing the sphere entirely.
           nodeThreeObjectExtend={settings.showLabels}
-          nodeThreeObject={settings.showLabels ? (node: object) => {
-            const graphNode = node as GraphNode;
-            const label = graphNode.name ?? graphNode.hash.toUpperCase();
-            // Reuse cached sprite; only recreate if text or size changed.
-            let sprite = spriteMapRef.current.get(graphNode.hash);
-            if (!sprite || sprite.text !== label || sprite.textHeight !== settings.threeDLabelSize) {
-              sprite = new SpriteText(label);
-              sprite.color = '#ffffff';
-              sprite.backgroundColor = 'rgba(0,0,0,0.55)';
-              sprite.padding = 1.5;
-              sprite.borderRadius = 2;
-              sprite.textHeight = settings.threeDLabelSize;
-              spriteMapRef.current.set(graphNode.hash, sprite);
-            }
-            // Position label above the sphere. Sphere radius ≈ nodeRelSize * ∛val = 3 * ∛(minNodeRadius/2).
-            sprite.position.y = 3 * Math.cbrt(settings.minNodeRadius / 2) + 3;
-            return sprite;
-          } : undefined}
+          nodeThreeObject={settings.showLabels ? nodeThreeObjectCb : undefined}
           // warmupTicks runs the simulation silently before first render so the graph
           // appears already settled rather than animating from a random layout on mobile.
           warmupTicks={100}
