@@ -15,6 +15,49 @@ export interface GraphSettings {
   threeDLinkOpacity: number;
   threeDLabelSize: number;
   orbit: boolean;
+  geoInfluence: number;
+}
+
+/**
+ * Projects node lat/lng to a centred coordinate space (range ≈ [-scale/2, scale/2]).
+ * Returns a Map of hash → {x, y} for nodes that have location data.
+ *
+ * Centre point: uses the provided override if supplied, otherwise the centroid
+ * (mean lat/lng) of all located nodes. Using the centroid rather than the
+ * bounding-box midpoint means a single outlier node doesn't drag the whole
+ * projection off-centre.
+ *
+ * Only exported for reuse by NetworkGraph3D.
+ */
+export function projectGeo(
+  nodes: NodeData[],
+  scale = 400,
+  center?: { lat: number; lng: number },
+): Map<string, { x: number; y: number }> {
+  type Located = NodeData & { latitude: number; longitude: number };
+  const located = nodes.filter(
+    (n): n is Located => n.latitude != null && n.longitude != null
+  );
+  if (located.length === 0) return new Map();
+
+  const lats = located.map((n) => n.latitude);
+  const lons = located.map((n) => n.longitude);
+  const minLat = Math.min(...lats), maxLat = Math.max(...lats);
+  const minLon = Math.min(...lons), maxLon = Math.max(...lons);
+  const span = Math.max(maxLat - minLat, maxLon - minLon) || 1;
+
+  // Use override center, or fall back to the mean of all located nodes.
+  const midLat = center?.lat ?? located.reduce((s, n) => s + n.latitude, 0) / located.length;
+  const midLon = center?.lng ?? located.reduce((s, n) => s + n.longitude, 0) / located.length;
+
+  const result = new Map<string, { x: number; y: number }>();
+  for (const n of located) {
+    result.set(n.hash, {
+      x: ((n.longitude - midLon) / span) * scale,
+      y: -((n.latitude - midLat) / span) * scale, // invert: lat↑ = y↓
+    });
+  }
+  return result;
 }
 
 interface Props {
@@ -23,6 +66,7 @@ interface Props {
   selectedId: string | null;
   onSelect: (id: string | null) => void;
   settings: GraphSettings;
+  geoCenter?: { lat: number; lng: number } | null;
 }
 
 interface SimNode extends NodeData {
@@ -48,7 +92,7 @@ function edgeWidth(e: EdgeData): number {
   return Math.max(1, Math.min(e.packet_count / 8, 6));
 }
 
-export function NetworkGraph({ nodes, edges, selectedId, onSelect, settings }: Props) {
+export function NetworkGraph({ nodes, edges, selectedId, onSelect, settings, geoCenter }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   const simRef = useRef<d3.Simulation<SimNode, SimEdge> | null>(null);
   const zoomGRef = useRef<d3.Selection<SVGGElement, unknown, null, undefined> | null>(null);
@@ -129,6 +173,8 @@ export function NetworkGraph({ nodes, edges, selectedId, onSelect, settings }: P
     const W = container?.clientWidth ?? 800;
     const H = container?.clientHeight ?? 600;
 
+    const geoMap = projectGeo(nodes, 400, geoCenter ?? undefined);
+
     const simNodes: SimNode[] = nodes.map((n) => {
       const existing = simNodesRef.current.find((s) => s.hash === n.hash);
       if (existing) {
@@ -136,10 +182,11 @@ export function NetworkGraph({ nodes, edges, selectedId, onSelect, settings }: P
         return existing;
       }
       const saved = posRef.current.get(n.hash);
+      const geo = geoMap.get(n.hash);
       return {
         ...n,
-        x: saved?.x ?? W / 2 + (Math.random() - 0.5) * 120,
-        y: saved?.y ?? H / 2 + (Math.random() - 0.5) * 120,
+        x: saved?.x ?? (geo ? W / 2 + geo.x : W / 2 + (Math.random() - 0.5) * 120),
+        y: saved?.y ?? (geo ? H / 2 + geo.y : H / 2 + (Math.random() - 0.5) * 120),
         vx: 0,
         vy: 0,
         fx: null,
@@ -240,6 +287,26 @@ export function NetworkGraph({ nodes, edges, selectedId, onSelect, settings }: P
 
     sim.force<d3.ForceCollide<SimNode>>('collide')?.radius(() => nodeRadius(settings) + 10);
 
+    // Geo-attraction forces: pull each located node gently toward its projected
+    // geographic position. Nodes without location data are unaffected (strength 0).
+    if (settings.geoInfluence > 0 && geoMap.size > 0) {
+      sim.force('geoX',
+        d3.forceX<SimNode>((n) => {
+          const p = geoMap.get(n.hash);
+          return p ? W / 2 + p.x : W / 2;
+        }).strength((n) => (geoMap.has(n.hash) ? settings.geoInfluence : 0))
+      );
+      sim.force('geoY',
+        d3.forceY<SimNode>((n) => {
+          const p = geoMap.get(n.hash);
+          return p ? H / 2 + p.y : H / 2;
+        }).strength((n) => (geoMap.has(n.hash) ? settings.geoInfluence : 0))
+      );
+    } else {
+      sim.force('geoX', null);
+      sim.force('geoY', null);
+    }
+
     sim.nodes(simNodes);
 
     const topologyKey = [
@@ -251,6 +318,7 @@ export function NetworkGraph({ nodes, edges, selectedId, onSelect, settings }: P
       settings.linkStrength,
       settings.chargeStrength,
       settings.minNodeRadius,
+      settings.geoInfluence,
     ].join('|');
 
     if (topologyKeyRef.current !== topologyKey || forceKeyRef.current !== forceKey) {

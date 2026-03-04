@@ -39,7 +39,13 @@ app.get('/api/graph', (_req, res) => {
 });
 
 app.get('/api/config', (_req, res) => {
-  res.json({ mqttDisplayName: getMqttDisplayName() });
+  const geoEnabled = process.env.GEO_ENABLED !== 'false';
+  const centerLat = process.env.CENTER_LAT ? parseFloat(process.env.CENTER_LAT) : null;
+  const centerLon = process.env.CENTER_LON ? parseFloat(process.env.CENTER_LON) : null;
+  const geoCenter = (geoEnabled && centerLat != null && !isNaN(centerLat) && centerLon != null && !isNaN(centerLon))
+    ? { lat: centerLat, lng: centerLon }
+    : null;
+  res.json({ mqttDisplayName: getMqttDisplayName(), geoEnabled, geoCenter });
 });
 
 // Serve built frontend (production only — in dev, Vite serves the client)

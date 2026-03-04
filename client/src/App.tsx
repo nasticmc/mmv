@@ -4,7 +4,6 @@ import { NetworkGraph3D } from './components/NetworkGraph3D';
 import { NodePanel } from './components/NodePanel';
 import { StatsBar } from './components/StatsBar';
 import { PacketLog } from './components/PacketLog';
-import { DebugPanel } from './components/DebugPanel';
 import { useWebSocket } from './hooks/useWebSocket';
 import type { NodeData } from './types';
 import { ROLE_COLORS } from './types';
@@ -27,16 +26,18 @@ const DEFAULT_GRAPH_SETTINGS: GraphSettings = {
   threeDLinkOpacity: 0.55,
   threeDLabelSize: 6,
   orbit: false,
+  geoInfluence: 0.05,
 };
 
 export default function App() {
-  const { nodes, edges, stats, recentPackets, debugLogs, connected } = useWebSocket(WS_URL);
+  const { nodes, edges, stats, recentPackets, connected } = useWebSocket(WS_URL);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [panelOpen, setPanelOpen] = useState(false);
-  const [showDebug, setShowDebug] = useState(false);
-  const [showVizControls, setShowVizControls] = useState(false);
+const [showVizControls, setShowVizControls] = useState(false);
   const [graphSettings, setGraphSettings] = useState<GraphSettings>(DEFAULT_GRAPH_SETTINGS);
   const [mqttDisplayName, setMqttDisplayName] = useState('…');
+  const [geoEnabled, setGeoEnabled] = useState(true);
+  const [geoCenter, setGeoCenter] = useState<{ lat: number; lng: number } | null>(null);
   // focusKey bumps each time we want the 3D camera to fly to focusNodeId.
   const [focusNodeId, setFocusNodeId] = useState<string | null>(null);
   const [focusKey, setFocusKey] = useState(0);
@@ -44,7 +45,11 @@ export default function App() {
   useEffect(() => {
     fetch(`${API_BASE}/api/config`)
       .then(r => r.json())
-      .then((d: { mqttDisplayName: string }) => setMqttDisplayName(d.mqttDisplayName))
+      .then((d: { mqttDisplayName: string; geoEnabled: boolean; geoCenter: { lat: number; lng: number } | null }) => {
+        setMqttDisplayName(d.mqttDisplayName);
+        setGeoEnabled(d.geoEnabled);
+        if (d.geoCenter) setGeoCenter(d.geoCenter);
+      })
       .catch(() => {});
   }, []);
 
@@ -57,6 +62,15 @@ export default function App() {
 
   const selectedNode: NodeData | null =
     selectedId != null ? (nodes.find((n) => n.hash === selectedId) ?? null) : null;
+
+  // When geo is disabled, strip lat/lng so projectGeo returns empty everywhere
+  // and the Geo influence slider stays hidden — no changes needed in child components.
+  const effectiveNodes = useMemo(
+    () => geoEnabled ? nodes : nodes.map((n) => ({ ...n, latitude: null, longitude: null })),
+    [nodes, geoEnabled],
+  );
+
+  const hasGeoNodes = effectiveNodes.some((n) => n.latitude != null);
 
   // Selecting a node always opens the panel; passing null clears both.
   const handleSelect = (hash: string | null) => {
@@ -74,21 +88,23 @@ export default function App() {
         {/* Graph */}
         {graphSettings.mode === '3d' ? (
           <NetworkGraph3D
-            nodes={nodes}
+            nodes={effectiveNodes}
             edges={edges}
             selectedId={selectedId}
             onSelect={handleSelect}
             settings={graphSettings}
             focusNodeId={focusNodeId}
             focusKey={focusKey}
+            geoCenter={geoCenter}
           />
         ) : (
           <NetworkGraph
-            nodes={nodes}
+            nodes={effectiveNodes}
             edges={edges}
             selectedId={selectedId}
             onSelect={handleSelect}
             settings={graphSettings}
+            geoCenter={geoCenter}
           />
         )}
 
@@ -194,6 +210,17 @@ export default function App() {
                     checked={graphSettings.orbit}
                     onChange={(checked) => setGraphSettings(s => ({ ...s, orbit: checked }))}
                   />
+
+                  {hasGeoNodes && (
+                    <RangeControl
+                      label={`Geo influence: ${graphSettings.geoInfluence.toFixed(2)}`}
+                      min={0}
+                      max={0.3}
+                      step={0.01}
+                      value={graphSettings.geoInfluence}
+                      onChange={(v) => setGraphSettings(s => ({ ...s, geoInfluence: v }))}
+                    />
+                  )}
                 </>
               ) : (
                 <>
@@ -255,6 +282,17 @@ export default function App() {
                     checked={graphSettings.showPacketBadges}
                     onChange={(checked) => setGraphSettings(s => ({ ...s, showPacketBadges: checked }))}
                   />
+
+                  {hasGeoNodes && (
+                    <RangeControl
+                      label={`Geo influence: ${graphSettings.geoInfluence.toFixed(2)}`}
+                      min={0}
+                      max={0.3}
+                      step={0.01}
+                      value={graphSettings.geoInfluence}
+                      onChange={(v) => setGraphSettings(s => ({ ...s, geoInfluence: v }))}
+                    />
+                  )}
                 </>
               )}
 
@@ -307,23 +345,6 @@ export default function App() {
 
       {/* Packet log */}
       <PacketLog packets={recentPackets} />
-
-      {/* Debug toggle button */}
-      <button
-        onClick={() => setShowDebug(v => !v)}
-        className={`fixed bottom-4 right-4 z-40 px-3 py-1.5 rounded text-xs font-mono font-semibold shadow-lg transition-colors ${
-          showDebug
-            ? 'bg-indigo-600 hover:bg-indigo-500 text-white'
-            : 'bg-gray-800 hover:bg-gray-700 text-gray-300 border border-gray-600'
-        }`}
-      >
-        {showDebug ? 'Hide Debug' : 'Debug'}
-      </button>
-
-      {/* Debug panel */}
-      {showDebug && (
-        <DebugPanel logs={debugLogs} onClose={() => setShowDebug(false)} />
-      )}
 
       {/* Empty state */}
       {nodes.length === 0 && (

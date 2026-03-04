@@ -1,9 +1,11 @@
 import { useMemo, useRef, useState, useEffect, useCallback } from 'react';
 import ForceGraph3D from 'react-force-graph-3d';
 import SpriteText from 'three-spritetext';
+import * as d3 from 'd3';
 import type { EdgeData, NodeData } from '../types';
 import { ROLE_COLORS } from '../types';
 import type { GraphSettings } from './NetworkGraph';
+import { projectGeo } from './NetworkGraph';
 
 interface Props {
   nodes: NodeData[];
@@ -14,6 +16,7 @@ interface Props {
   /** Bumping this number triggers a camera fly to focusNodeId. */
   focusKey?: number;
   focusNodeId?: string | null;
+  geoCenter?: { lat: number; lng: number } | null;
 }
 
 interface GraphNode extends NodeData {
@@ -42,7 +45,7 @@ function linkEndId(end: string | number | GraphNode | object): string {
 const MESH_REFRESH_MS = 30_000;
 
 export function NetworkGraph3D({
-  nodes, edges, selectedId, onSelect, settings, focusKey, focusNodeId,
+  nodes, edges, selectedId, onSelect, settings, focusKey, focusNodeId, geoCenter,
 }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   const fgRef = useRef<any>(null);
@@ -79,6 +82,7 @@ export function NetworkGraph3D({
   // Build graph objects, preserving existing node positions so the layout
   // doesn't jump when new data arrives between 30-second display flushes.
   const graphData = useMemo(() => {
+    const geoMap = projectGeo(nodes, 400, geoCenter ?? undefined);
     const nextNodeMap = new Map<string, GraphNode>();
 
     for (const node of nodes) {
@@ -91,11 +95,13 @@ export function NetworkGraph3D({
         });
         nextNodeMap.set(node.hash, existing);
       } else {
+        const geo = geoMap.get(node.hash);
         nextNodeMap.set(node.hash, {
           ...node,
           id: node.hash,
           color: nodeColor(node),
           val: settings.minNodeRadius / 2,
+          ...(geo && { x: geo.x, y: geo.y }),
         });
       }
     }
@@ -197,6 +203,32 @@ export function NetworkGraph3D({
     fg.d3Force('link')?.distance(settings.linkDistance).strength(settings.linkStrength);
     fg.d3ReheatSimulation();
   }, [settings.linkDistance, settings.linkStrength]);
+
+  // Geo-attraction forces: runs when the throttled display topology refreshes or
+  // when the user adjusts geo influence. Nodes without location data get strength 0.
+  useEffect(() => {
+    const fg = fgRef.current;
+    if (!fg) return;
+
+    if (settings.geoInfluence > 0) {
+      const geoMap = projectGeo(displayData.nodes, 400, geoCenter ?? undefined);
+      if (geoMap.size > 0) {
+        fg.d3Force('geoX',
+          d3.forceX((n: any) => geoMap.get(n.id)?.x ?? 0)
+            .strength((n: any) => (geoMap.has(n.id) ? settings.geoInfluence : 0))
+        );
+        fg.d3Force('geoY',
+          d3.forceY((n: any) => geoMap.get(n.id)?.y ?? 0)
+            .strength((n: any) => (geoMap.has(n.id) ? settings.geoInfluence : 0))
+        );
+        fg.d3ReheatSimulation();
+        return;
+      }
+    }
+
+    fg.d3Force('geoX', null);
+    fg.d3Force('geoY', null);
+  }, [displayData.nodes, settings.geoInfluence, geoCenter]);
 
   // Fly camera to a focused node when focusKey changes.
   useEffect(() => {
