@@ -12,6 +12,13 @@ export interface ProcessResult {
   path: string[];
 }
 
+function buildBroadcastPath(path: string[], observerKey: string | undefined): string[] {
+  const observerHash = observerKey ? hashFromKeyPrefix(observerKey) : null;
+  if (!observerHash) return path;
+  if (path[path.length - 1] === observerHash) return path;
+  return [...path, observerHash];
+}
+
 const PAYLOAD_TYPE_NAMES: Record<number, string> = {
   0: 'Request',
   1: 'Response',
@@ -116,6 +123,7 @@ export function processPacket(hex: string, observerKey?: string): ProcessResult 
     .filter((h): h is string => h !== null);
 
   const { nodes: updatedNodes, edges: updatedEdges } = applyPathAndObserver(path, observerKey, now);
+  const broadcastPath = buildBroadcastPath(path, observerKey);
 
   if (packet.payloadType === (PayloadType.Advert as number) && packet.payload.decoded) {
     const advert = packet.payload.decoded as AdvertPayload;
@@ -150,6 +158,6 @@ export function processPacket(hex: string, observerKey?: string): ProcessResult 
     edges: updatedEdges,
     packetType,
     hash: packet.messageHash,
-    path,
+    path: broadcastPath,
   };
 }
