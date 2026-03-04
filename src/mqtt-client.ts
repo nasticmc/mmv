@@ -4,7 +4,7 @@ import { broadcastNode, broadcastEdge, broadcastStats, broadcastPacket, debugLog
 import { touchNode } from './db.js';
 import { hashFromKeyPrefix } from './hash-utils.js';
 
-const MQTT_URL = process.env.MQTT_URL ?? 'mqtt://mqtt.eastmesh.au:1883';
+const MQTT_URL = process.env.MQTT_URL ?? 'mqtt://mqtt.example.com:1883';
 const MQTT_TOPIC = process.env.MQTT_TOPIC ?? 'meshcore/+/+/packets';
 
 let statsTimer: ReturnType<typeof setInterval> | null = null;
@@ -65,8 +65,8 @@ export function startMqtt(): mqtt.MqttClient {
     debugLog.info(`[mqtt] message on ${topic} (${payload.length} bytes)`);
 
     const parts = topic.split('/');
-    const observerKey = parts[2] ?? undefined;
-    const streamType = parts[3] ?? '';
+    const streamType = parts[parts.length - 1] ?? '';
+    const observerKey = parts.length >= 2 ? parts[parts.length - 2] : undefined;
 
     const observerHash = observerKey ? hashFromKeyPrefix(observerKey) : null;
     if (observerHash) {

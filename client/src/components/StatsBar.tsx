@@ -4,9 +4,10 @@ interface Props {
   stats: StatsData;
   connected: boolean;
   packetRate: number;
+  mqttDisplayName: string;
 }
 
-export function StatsBar({ stats, connected, packetRate }: Props) {
+export function StatsBar({ stats, connected, packetRate, mqttDisplayName }: Props) {
   return (
     <div className="flex items-center gap-6 px-4 py-2 bg-gray-900 border-b border-gray-800 text-sm font-mono shrink-0">
       {/* Title */}
@@ -36,7 +37,7 @@ export function StatsBar({ stats, connected, packetRate }: Props) {
         </>
       )}
 
-      <div className="ml-auto text-gray-600 text-xs">mqtt.eastmesh.au</div>
+      <div className="ml-auto text-gray-600 text-xs">{mqttDisplayName}</div>
     </div>
   );
 }

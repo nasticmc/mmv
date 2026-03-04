@@ -126,7 +126,7 @@ There are no automated tests currently. Validate by building and spot-checking b
 
 | Variable | Default | Description |
 |---|---|---|
-| `MQTT_URL` | `mqtt://mqtt.eastmesh.au:1883` | MQTT broker URL |
+| `MQTT_URL` | `mqtt://mqtt.example.com:1883` | MQTT broker URL |
 | `MQTT_USERNAME` | _(unset)_ | Optional MQTT username |
 | `MQTT_PASSWORD` | _(unset)_ | Optional MQTT password |
 | `MQTT_CLIENT_ID` | `mmv-<random>` | MQTT client ID |

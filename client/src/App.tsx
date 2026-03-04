@@ -12,6 +12,7 @@ const isDev = window.location.port === '5173';
 const WS_URL = isDev
   ? `ws://${window.location.hostname}:3001/ws`
   : `ws://${window.location.host}/ws`;
+const API_BASE = isDev ? `http://${window.location.hostname}:3001` : '';
 
 const DEFAULT_GRAPH_SETTINGS: GraphSettings = {
   minNodeRadius: 9,
@@ -32,6 +33,14 @@ export default function App() {
   const [showDebug, setShowDebug] = useState(false);
   const [showVizControls, setShowVizControls] = useState(false);
   const [graphSettings, setGraphSettings] = useState<GraphSettings>(DEFAULT_GRAPH_SETTINGS);
+  const [mqttDisplayName, setMqttDisplayName] = useState('…');
+
+  useEffect(() => {
+    fetch(`${API_BASE}/api/config`)
+      .then(r => r.json())
+      .then((d: { mqttDisplayName: string }) => setMqttDisplayName(d.mqttDisplayName))
+      .catch(() => {});
+  }, []);
 
   // Compute packet rate from recent packets
   const rateRef = useRef<number>(0);
@@ -46,7 +55,7 @@ export default function App() {
   return (
     <div className="h-screen flex flex-col overflow-hidden bg-gray-950 text-gray-100">
       {/* Top stats bar */}
-      <StatsBar stats={stats} connected={connected} packetRate={rateRef.current} />
+      <StatsBar stats={stats} connected={connected} packetRate={rateRef.current} mqttDisplayName={mqttDisplayName} />
 
       {/* Main area */}
       <div className="flex flex-1 min-h-0 relative">
@@ -83,7 +92,7 @@ export default function App() {
           </button>
 
           {showVizControls && (
-            <div className="mt-2 w-72 rounded-lg border border-gray-700 bg-gray-900/95 backdrop-blur p-3 text-xs font-mono space-y-3 shadow-2xl">
+            <div className="mt-2 w-72 max-h-[calc(100vh-8rem)] overflow-y-auto rounded-lg border border-gray-700 bg-gray-900/95 backdrop-blur p-3 text-xs font-mono space-y-3 shadow-2xl">
               <div className="text-gray-300 font-semibold">Node size is fixed for all nodes.</div>
 
               <ToggleControl
@@ -267,7 +276,7 @@ export default function App() {
             <div className="text-lg font-semibold text-gray-500 mb-2">Waiting for nodes…</div>
             <div className="text-sm">
               {connected
-                ? 'Connected — listening for MeshCore packets on mqtt.eastmesh.au'
+                ? `Connected — listening for MeshCore packets on ${mqttDisplayName}`
                 : 'Connecting to backend…'}
             </div>
           </div>
