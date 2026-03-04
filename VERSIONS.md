@@ -1,6 +1,6 @@
 # Versions
 
-## [1.1.0] – 2026-03-04
+## [0.7.0] – 2026-03-04
 
 ### Added
 - Geographic layout influence: node lat/lng (from MeshCore advert packets) is now
@@ -28,7 +28,7 @@
 
 ---
 
-## [1.0.0] – 2026-03-04
+## [0.6.0] – 2026-03-04
 
 ### Added
 - Node search with focus-fly-to in both 2D and 3D modes
