@@ -11,6 +11,7 @@ interface UseWebSocketResult {
   edges: EdgeData[];
   stats: StatsData;
   recentPackets: PacketEvent[];
+  packetRatePerMinute: number;
   debugLogs: DebugLogEntry[];
   connected: boolean;
   mqttStatus: 'unknown' | 'connected' | 'disconnected';
@@ -45,10 +46,13 @@ export function useWebSocket(url: string): UseWebSocketResult {
   const [graph, setGraph] = useState<GraphState>({ nodes: [], edges: [] });
   const [stats, setStats] = useState<StatsData>(DEFAULT_STATS);
   const [recentPackets, setRecentPackets] = useState<PacketEvent[]>([]);
+  const [packetRatePerMinute, setPacketRatePerMinute] = useState(0);
   const [debugLogs, setDebugLogs] = useState<DebugLogEntry[]>([]);
   const [connected, setConnected] = useState(false);
   const wsRef = useRef<WebSocket | null>(null);
   const reconnectTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const packetIdRef = useRef(0);
+  const packetTimestampsRef = useRef<number[]>([]);
 
   const connect = useCallback(() => {
     if (wsRef.current?.readyState === WebSocket.OPEN) return;
@@ -97,6 +101,7 @@ export function useWebSocket(url: string): UseWebSocketResult {
         case 'packet':
           setRecentPackets(prev => {
             const entry: PacketEvent = {
+              id: packetIdRef.current++,
               packetType: msg.packetType,
               hash: msg.hash,
               pathLen: msg.pathLen,
@@ -106,6 +111,15 @@ export function useWebSocket(url: string): UseWebSocketResult {
             };
             return [entry, ...prev].slice(0, 50);
           });
+          {
+            const now = Date.now();
+            const cutoff = now - 60_000;
+            packetTimestampsRef.current.push(now);
+            while (packetTimestampsRef.current.length > 0 && packetTimestampsRef.current[0] < cutoff) {
+              packetTimestampsRef.current.shift();
+            }
+            setPacketRatePerMinute(packetTimestampsRef.current.length);
+          }
           break;
 
         case 'debug':
@@ -131,6 +145,7 @@ export function useWebSocket(url: string): UseWebSocketResult {
     edges: graph.edges,
     stats,
     recentPackets,
+    packetRatePerMinute,
     debugLogs,
     connected,
     mqttStatus: 'unknown',
