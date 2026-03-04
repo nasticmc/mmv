@@ -136,7 +136,7 @@ export default function App() {
                 : 'bg-gray-800/90 hover:bg-gray-700 text-gray-200 border border-gray-600'
             }`}
           >
-            {showVizControls ? 'Hide Viz Settings' : 'Viz Settings'}
+            {showVizControls ? 'Hide settings' : 'Settings'}
           </button>
 
           {showVizControls && (
@@ -206,7 +206,11 @@ export default function App() {
           )}
         </div>
 
-        {selectedNode && panelOpen && <NodePanel node={selectedNode} edges={edges} onClose={() => setPanelOpen(false)} />}
+        {selectedNode && panelOpen && (
+          <div className="absolute inset-y-0 right-0 z-40">
+            <NodePanel node={selectedNode} edges={edges} onClose={() => setPanelOpen(false)} />
+          </div>
+        )}
 
         {selectedNode && !panelOpen && (
           <div className="absolute bottom-4 right-4 z-30 flex items-center gap-2 rounded-lg border border-gray-700 bg-gray-900/95 backdrop-blur px-3 py-2 text-xs font-mono shadow-xl">

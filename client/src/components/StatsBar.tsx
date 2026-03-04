@@ -24,8 +24,6 @@ export function StatsBar({ stats, connected, packetRate, mqttDisplayName }: Prop
 
         <Stat label="nodes" value={stats.nodeCount} />
         <Stat label="named" value={stats.namedNodeCount} />
-        <Stat label="edges" value={stats.edgeCount} />
-        <Stat label="adverts" value={stats.advertCount} />
 
         {packetRate > 0 && <Stat label="pkt/min" value={packetRate} color="text-yellow-400" />}
       </div>
