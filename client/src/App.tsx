@@ -26,6 +26,7 @@ const DEFAULT_GRAPH_SETTINGS: GraphSettings = {
   threeDLinkOpacity: 0.55,
   threeDLabelSize: 6,
   orbit: false,
+  geoInfluence: 0.05,
 };
 
 export default function App() {
@@ -55,6 +56,8 @@ const [showVizControls, setShowVizControls] = useState(false);
 
   const selectedNode: NodeData | null =
     selectedId != null ? (nodes.find((n) => n.hash === selectedId) ?? null) : null;
+
+  const hasGeoNodes = nodes.some((n) => n.latitude != null);
 
   // Selecting a node always opens the panel; passing null clears both.
   const handleSelect = (hash: string | null) => {
@@ -192,6 +195,17 @@ const [showVizControls, setShowVizControls] = useState(false);
                     checked={graphSettings.orbit}
                     onChange={(checked) => setGraphSettings(s => ({ ...s, orbit: checked }))}
                   />
+
+                  {hasGeoNodes && (
+                    <RangeControl
+                      label={`Geo influence: ${graphSettings.geoInfluence.toFixed(2)}`}
+                      min={0}
+                      max={0.3}
+                      step={0.01}
+                      value={graphSettings.geoInfluence}
+                      onChange={(v) => setGraphSettings(s => ({ ...s, geoInfluence: v }))}
+                    />
+                  )}
                 </>
               ) : (
                 <>
@@ -253,6 +267,17 @@ const [showVizControls, setShowVizControls] = useState(false);
                     checked={graphSettings.showPacketBadges}
                     onChange={(checked) => setGraphSettings(s => ({ ...s, showPacketBadges: checked }))}
                   />
+
+                  {hasGeoNodes && (
+                    <RangeControl
+                      label={`Geo influence: ${graphSettings.geoInfluence.toFixed(2)}`}
+                      min={0}
+                      max={0.3}
+                      step={0.01}
+                      value={graphSettings.geoInfluence}
+                      onChange={(v) => setGraphSettings(s => ({ ...s, geoInfluence: v }))}
+                    />
+                  )}
                 </>
               )}
 

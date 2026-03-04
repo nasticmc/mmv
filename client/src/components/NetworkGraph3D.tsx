@@ -1,9 +1,11 @@
 import { useMemo, useRef, useState, useEffect, useCallback } from 'react';
 import ForceGraph3D from 'react-force-graph-3d';
 import SpriteText from 'three-spritetext';
+import * as d3 from 'd3';
 import type { EdgeData, NodeData } from '../types';
 import { ROLE_COLORS } from '../types';
 import type { GraphSettings } from './NetworkGraph';
+import { projectGeo } from './NetworkGraph';
 
 interface Props {
   nodes: NodeData[];
@@ -79,6 +81,7 @@ export function NetworkGraph3D({
   // Build graph objects, preserving existing node positions so the layout
   // doesn't jump when new data arrives between 30-second display flushes.
   const graphData = useMemo(() => {
+    const geoMap = projectGeo(nodes);
     const nextNodeMap = new Map<string, GraphNode>();
 
     for (const node of nodes) {
@@ -91,11 +94,13 @@ export function NetworkGraph3D({
         });
         nextNodeMap.set(node.hash, existing);
       } else {
+        const geo = geoMap.get(node.hash);
         nextNodeMap.set(node.hash, {
           ...node,
           id: node.hash,
           color: nodeColor(node),
           val: settings.minNodeRadius / 2,
+          ...(geo && { x: geo.x, y: geo.y }),
         });
       }
     }
@@ -197,6 +202,32 @@ export function NetworkGraph3D({
     fg.d3Force('link')?.distance(settings.linkDistance).strength(settings.linkStrength);
     fg.d3ReheatSimulation();
   }, [settings.linkDistance, settings.linkStrength]);
+
+  // Geo-attraction forces: runs when the throttled display topology refreshes or
+  // when the user adjusts geo influence. Nodes without location data get strength 0.
+  useEffect(() => {
+    const fg = fgRef.current;
+    if (!fg) return;
+
+    if (settings.geoInfluence > 0) {
+      const geoMap = projectGeo(displayData.nodes);
+      if (geoMap.size > 0) {
+        fg.d3Force('geoX',
+          d3.forceX((n: any) => geoMap.get(n.id)?.x ?? 0)
+            .strength((n: any) => (geoMap.has(n.id) ? settings.geoInfluence : 0))
+        );
+        fg.d3Force('geoY',
+          d3.forceY((n: any) => geoMap.get(n.id)?.y ?? 0)
+            .strength((n: any) => (geoMap.has(n.id) ? settings.geoInfluence : 0))
+        );
+        fg.d3ReheatSimulation();
+        return;
+      }
+    }
+
+    fg.d3Force('geoX', null);
+    fg.d3Force('geoY', null);
+  }, [displayData.nodes, settings.geoInfluence]);
 
   // Fly camera to a focused node when focusKey changes.
   useEffect(() => {

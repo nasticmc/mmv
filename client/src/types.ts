@@ -8,6 +8,8 @@ export interface NodeData {
   first_seen: number;     // unix ms
   last_seen: number;      // unix ms
   packet_count: number;
+  latitude: number | null;
+  longitude: number | null;
 }
 
 export interface EdgeData {

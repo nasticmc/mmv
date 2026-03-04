@@ -48,8 +48,8 @@ db.exec(`
     received_at INTEGER NOT NULL
   );
 
-  -- Location data stored separately - not used for positioning nodes in the graph
-  -- but kept for potential future use (e.g. next-hop guessing, reporting)
+  -- Location data stored separately; joined into node queries to feed
+  -- geographic influence forces in the frontend graph layout
   CREATE TABLE IF NOT EXISTS locations (
     public_key  TEXT PRIMARY KEY,
     latitude    REAL NOT NULL,
@@ -66,6 +66,8 @@ export interface NodeRow {
   first_seen: number;
   last_seen: number;
   packet_count: number;
+  latitude: number | null;
+  longitude: number | null;
 }
 
 export interface EdgeRow {
@@ -171,7 +173,14 @@ export function applyAdvert(
 // Configurable via MIN_EDGE_PACKETS env var (default 5).
 export const MIN_EDGE_PACKETS = parseInt(process.env.MIN_EDGE_PACKETS ?? '5', 10);
 
-const selectAllNodes = db.prepare('SELECT * FROM nodes ORDER BY last_seen DESC');
+const selectAllNodes = db.prepare(`
+  SELECT n.hash, n.public_key, n.name, n.device_role,
+         n.first_seen, n.last_seen, n.packet_count,
+         l.latitude, l.longitude
+  FROM nodes n
+  LEFT JOIN locations l ON l.public_key = n.public_key
+  ORDER BY n.last_seen DESC
+`);
 const selectAllEdges = db.prepare('SELECT * FROM edges WHERE packet_count >= ?');
 const countNodes = db.prepare('SELECT COUNT(*) as c FROM nodes');
 const countEdges = db.prepare('SELECT COUNT(*) as c FROM edges WHERE packet_count >= ?');
