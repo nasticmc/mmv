@@ -1,7 +1,7 @@
 import mqtt from 'mqtt';
 import { processPacket } from './processor.js';
 import { broadcastNode, broadcastEdge, broadcastStats, broadcastPacket, debugLog } from './ws-broadcast.js';
-import { touchNode } from './db.js';
+import { touchNode, MIN_EDGE_PACKETS } from './db.js';
 import { hashFromKeyPrefix } from './hash-utils.js';
 
 const MQTT_URL = process.env.MQTT_URL ?? 'mqtt://mqtt.example.com:1883';
@@ -104,7 +104,9 @@ export function startMqtt(): mqtt.MqttClient {
     if (!result) return;
 
     for (const node of result.nodes) broadcastNode(node);
-    for (const edge of result.edges) broadcastEdge(edge);
+    for (const edge of result.edges) {
+      if (edge.packet_count >= MIN_EDGE_PACKETS) broadcastEdge(edge);
+    }
     broadcastPacket(result.packetType, result.hash, result.path.length, result.path, duration);
   });
 

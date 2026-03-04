@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useMemo, useRef, useState, useEffect } from 'react';
 import ForceGraph3D from 'react-force-graph-3d';
 import SpriteText from 'three-spritetext';
 import type { EdgeData, NodeData } from '../types';
@@ -32,6 +32,8 @@ export function NetworkGraph3D({ nodes, edges, selectedId, onSelect, settings }:
   const containerRef = useRef<HTMLDivElement>(null);
   const nodeMapRef = useRef(new Map<string, GraphNode>());
   const linkMapRef = useRef(new Map<string, GraphLink>());
+  // SpriteText cache: avoids recreating 200+ Three.js objects on every data update.
+  const spriteMapRef = useRef(new Map<string, SpriteText>());
   const [size, setSize] = useState({ width: 0, height: 0 });
 
   useEffect(() => {
@@ -47,6 +49,7 @@ export function NetworkGraph3D({ nodes, edges, selectedId, onSelect, settings }:
     observer.observe(container);
     return () => observer.disconnect();
   }, []);
+
 
   const graphData = useMemo(() => {
     const nextNodeMap = new Map<string, GraphNode>();
@@ -71,6 +74,11 @@ export function NetworkGraph3D({ nodes, edges, selectedId, onSelect, settings }:
     }
 
     nodeMapRef.current = nextNodeMap;
+
+    // Prune stale sprite cache entries so we don't hold Three.js objects for gone nodes.
+    for (const h of spriteMapRef.current.keys()) {
+      if (!nextNodeMap.has(h)) spriteMapRef.current.delete(h);
+    }
 
     const nodeSet = new Set(nextNodeMap.keys());
     const nextLinkMap = new Map<string, GraphLink>();
@@ -125,16 +133,29 @@ export function NetworkGraph3D({ nodes, edges, selectedId, onSelect, settings }:
             onSelect(graphNode.hash);
           }}
           onBackgroundClick={() => onSelect(null)}
-          nodeThreeObject={(node: object) => {
-            if (!settings.showLabels) return undefined;
+          // nodeThreeObjectExtend keeps the default coloured sphere and adds the
+          // sprite as a child above it, rather than replacing the sphere entirely.
+          nodeThreeObjectExtend={settings.showLabels}
+          nodeThreeObject={settings.showLabels ? (node: object) => {
             const graphNode = node as GraphNode;
-            const sprite = new SpriteText(graphNode.name ?? graphNode.hash.toUpperCase());
-            sprite.color = '#9ca3af';
-            sprite.textHeight = settings.threeDLabelSize;
+            const label = graphNode.name ?? graphNode.hash.toUpperCase();
+            // Reuse cached sprite; only recreate if text or size changed.
+            let sprite = spriteMapRef.current.get(graphNode.hash);
+            if (!sprite || sprite.text !== label || sprite.textHeight !== settings.threeDLabelSize) {
+              sprite = new SpriteText(label);
+              sprite.color = '#9ca3af';
+              sprite.textHeight = settings.threeDLabelSize;
+              spriteMapRef.current.set(graphNode.hash, sprite);
+            }
+            // Position label above the sphere. Sphere radius ≈ nodeRelSize * ∛val = 3 * ∛(minNodeRadius/2).
+            sprite.position.y = 3 * Math.cbrt(settings.minNodeRadius / 2) + 3;
             return sprite;
-          }}
-          cooldownTicks={150}
-          d3AlphaDecay={0.03}
+          } : undefined}
+          // warmupTicks runs the simulation silently before first render so the graph
+          // appears already settled rather than animating from a random layout on mobile.
+          warmupTicks={100}
+          cooldownTicks={50}
+          d3AlphaDecay={0.05}
           d3VelocityDecay={0.3}
         />
       )}

@@ -36,10 +36,11 @@ Orchestrates the entire UI. Manages top-level state:
 - `showDebug` — toggles the debug panel overlay
 - `showVizControls` — toggles the visualization settings panel
 - `graphSettings` — `GraphSettings` object controlling both 2D and 3D renderers
+- `mqttDisplayName` — broker label fetched from `GET /api/config` on mount, shown in StatsBar
 
 Computes packet rate from `recentPackets` (count within last 60 seconds).
 
-WebSocket URL is auto-detected: port 5173 (Vite dev) connects to `ws://hostname:3001/ws`, otherwise uses `ws://host/ws`.
+WebSocket URL is auto-detected: port 9001 (Vite dev) connects to `ws://hostname:3001/ws`, otherwise uses `ws://host/ws`. Likewise, API calls in dev target `http://hostname:3001`.
 
 **When to modify**: Adding new panels, changing layout, or wiring new state from the WebSocket hook.
 
@@ -121,7 +122,7 @@ Compact horizontal bar showing:
 - Connection status indicator (green dot + "live" / red dot + "offline")
 - Node count, named node count, edge count, advert count
 - Packet rate per minute (only shown when > 0)
-- MQTT broker address (right-aligned)
+- `mqttDisplayName` right-aligned (fetched from `/api/config` by `App.tsx`; defaults to hostname from `MQTT_URL`, overridable via `MQTT_DISPLAY_NAME` env var)
 
 Uses the `Stat` sub-component for each metric (value + label pair).
 

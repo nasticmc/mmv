@@ -65,8 +65,10 @@ Edit `.env` as needed (MQTT broker and auth).
 | `MQTT_CLIENT_ID` | `mmv-<random>` | MQTT client ID |
 | `MQTT_TOPIC` | `meshcore/+/+/packets` | MQTT topic for packet JSON messages |
 | `MQTT_OBSERVERS` | _(unset)_ | Comma-separated observer public keys/prefixes to pre-create observer nodes |
+| `MQTT_DISPLAY_NAME` | _(unset)_ | Override broker label shown in the UI (defaults to hostname from `MQTT_URL`) |
 | `PORT` | `3001` | Backend HTTP/WebSocket port |
 | `DB_PATH` | `./data/mmv.db` | SQLite database path |
+| `VITE_PORT` | `9001` | Vite dev server port (client only) |
 
 ## Development
 
@@ -104,6 +106,7 @@ In production mode (`NODE_ENV=production`), the backend serves `client/dist`.
 - `GET /api/edges` — all known edges
 - `GET /api/stats` — summary counts
 - `GET /api/graph` — `{ nodes, edges, stats }`
+- `GET /api/config` — `{ mqttDisplayName }` broker label for the UI
 
 ### WebSocket (`/ws`)
 

@@ -16,9 +16,16 @@ The backend compiles to CommonJS (`dist/`). Production entry point: `node dist/i
 
 ### `index.ts` — HTTP server and REST API
 
-The application entry point. Sets up Express with CORS and JSON parsing, defines four REST endpoints (`/api/nodes`, `/api/edges`, `/api/stats`, `/api/graph`), initializes the WebSocket server, starts the MQTT client, and handles graceful SIGINT shutdown.
+The application entry point. Sets up Express with CORS and JSON parsing, defines REST endpoints, initializes the WebSocket server, starts the MQTT client, and handles graceful SIGINT shutdown.
 
 In production mode (`NODE_ENV=production`), it also serves the built frontend from `client/dist` with a catch-all for SPA routing.
+
+**REST endpoints**:
+- `GET /api/nodes` — all known nodes
+- `GET /api/edges` — all known edges
+- `GET /api/stats` — summary counts
+- `GET /api/graph` — `{ nodes, edges, stats }`
+- `GET /api/config` — `{ mqttDisplayName }`: broker label for the UI, derived from `MQTT_DISPLAY_NAME` env var or the hostname from `MQTT_URL`
 
 **When to modify**: Adding new REST endpoints, changing server startup behavior, or adjusting middleware.
 
@@ -27,7 +34,7 @@ In production mode (`NODE_ENV=production`), it also serves the built frontend fr
 Connects to the MQTT broker, subscribes to the `/packets` topic, and dispatches incoming messages through the processing pipeline.
 
 Key behaviors:
-- **Topic parsing**: Splits topic `meshcore/<namespace>/<observer_key>/packets` to extract the observer's public key from `parts[2]`.
+- **Topic parsing**: Splits topic `meshcore/<namespace>/<observer_key>/packets` to extract the observer's public key. Uses `parts[parts.length - 2]` (second-to-last segment) so it works regardless of topic depth.
 - **Observer node creation**: Immediately touches the observer node on every message, before packet decoding.
 - **JSON envelope parsing**: Parses the MQTT payload as JSON and extracts the `raw` hex field. The envelope also contains metadata (SNR, RSSI, hash, score, duration, etc.) available for future use.
 - **Packet processing**: Passes the `raw` hex to `processPacket()`. Only handles `packets` stream type.

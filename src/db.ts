@@ -167,10 +167,14 @@ export function applyAdvert(
   return hash;
 }
 
+// Minimum packet count an edge must have before it is served to clients.
+// Configurable via MIN_EDGE_PACKETS env var (default 5).
+export const MIN_EDGE_PACKETS = parseInt(process.env.MIN_EDGE_PACKETS ?? '5', 10);
+
 const selectAllNodes = db.prepare('SELECT * FROM nodes ORDER BY last_seen DESC');
-const selectAllEdges = db.prepare('SELECT * FROM edges');
+const selectAllEdges = db.prepare('SELECT * FROM edges WHERE packet_count >= ?');
 const countNodes = db.prepare('SELECT COUNT(*) as c FROM nodes');
-const countEdges = db.prepare('SELECT COUNT(*) as c FROM edges');
+const countEdges = db.prepare('SELECT COUNT(*) as c FROM edges WHERE packet_count >= ?');
 const countAdverts = db.prepare('SELECT COUNT(*) as c FROM adverts');
 const countNamedNodes = db.prepare("SELECT COUNT(*) as c FROM nodes WHERE name IS NOT NULL");
 
@@ -179,7 +183,7 @@ export function getAllNodes(): NodeRow[] {
 }
 
 export function getAllEdges(): EdgeRow[] {
-  return selectAllEdges.all() as unknown as EdgeRow[];
+  return selectAllEdges.all(MIN_EDGE_PACKETS) as unknown as EdgeRow[];
 }
 
 export function getStats(): {
@@ -189,7 +193,7 @@ export function getStats(): {
   namedNodeCount: number;
 } {
   const nodeCount = (countNodes.get() as { c: number }).c;
-  const edgeCount = (countEdges.get() as { c: number }).c;
+  const edgeCount = (countEdges.get(MIN_EDGE_PACKETS) as { c: number }).c;
   const advertCount = (countAdverts.get() as { c: number }).c;
   const namedNodeCount = (countNamedNodes.get() as { c: number }).c;
   return { nodeCount, edgeCount, advertCount, namedNodeCount };

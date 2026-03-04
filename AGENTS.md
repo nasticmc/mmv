@@ -105,6 +105,7 @@ There are no automated tests currently. Validate by building and spot-checking b
 | Dependency | Purpose |
 |---|---|
 | `express` 4.x | REST API |
+| `cors` 2.x | CORS middleware for Express |
 | `ws` 8.x | WebSocket server |
 | `mqtt` 5.x | MQTT client with auto-reconnect |
 | `node:sqlite` (DatabaseSync) | SQLite with WAL mode, synchronous API |
@@ -132,8 +133,10 @@ There are no automated tests currently. Validate by building and spot-checking b
 | `MQTT_CLIENT_ID` | `mmv-<random>` | MQTT client ID |
 | `MQTT_TOPIC` | `meshcore/+/+/packets` | MQTT topic pattern for packet JSON messages |
 | `MQTT_OBSERVERS` | _(unset)_ | Comma-separated observer public keys to pre-populate |
+| `MQTT_DISPLAY_NAME` | _(unset)_ | Override label shown for the broker in the UI (defaults to hostname from `MQTT_URL`) |
 | `PORT` | `3001` | Backend HTTP/WebSocket port |
 | `DB_PATH` | `./data/mmv.db` | SQLite database file path |
+| `VITE_PORT` | `9001` | Vite dev server port (client only) |
 
 ## Data model
 
@@ -227,6 +230,7 @@ The frontend receives `init` on connect with the full graph state, then applies 
 | `GET /api/edges` | `EdgeRow[]` |
 | `GET /api/stats` | `{ nodeCount, edgeCount, advertCount, namedNodeCount }` |
 | `GET /api/graph` | `{ nodes, edges, stats }` (combined snapshot) |
+| `GET /api/config` | `{ mqttDisplayName: string }` — broker label shown in the UI |
 
 ## Code conventions
 

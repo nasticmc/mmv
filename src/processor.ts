@@ -75,6 +75,23 @@ function applyPathAndObserver(path: string[], observerKey: string | undefined, n
   return { nodes: updatedNodes, edges: updatedEdges };
 }
 
+// Bounded set of recently seen packet hashes for deduplication.
+// Caps at SEEN_MAX entries; oldest 10% are evicted when full.
+const SEEN_MAX = 5000;
+const seenPacketHashes = new Set<string>();
+
+function isDuplicate(hash: string): boolean {
+  if (seenPacketHashes.has(hash)) return true;
+  if (seenPacketHashes.size >= SEEN_MAX) {
+    // Sets maintain insertion order — evict the oldest entries.
+    const evict = Math.ceil(SEEN_MAX * 0.1);
+    const iter = seenPacketHashes.values();
+    for (let i = 0; i < evict; i++) seenPacketHashes.delete(iter.next().value as string);
+  }
+  seenPacketHashes.add(hash);
+  return false;
+}
+
 export function processPacket(hex: string, observerKey?: string): ProcessResult | null {
   let packet;
   try {
@@ -84,6 +101,9 @@ export function processPacket(hex: string, observerKey?: string): ProcessResult 
   }
 
   if (!packet.isValid) return null;
+
+  const msgHash = packet.messageHash as string | undefined;
+  if (msgHash && isDuplicate(msgHash)) return null;
 
   const now = Date.now();
   const packetType = PAYLOAD_TYPE_NAMES[packet.payloadType] ?? String(packet.payloadType);
