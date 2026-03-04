@@ -369,7 +369,7 @@ export function NetworkGraph({ nodes, edges, selectedId, onSelect, settings, rec
       return;
     }
 
-    for (const packet of recentPackets) {
+    for (const packet of [...recentPackets].reverse()) {
       if (packet.id <= consumedPacketIdRef.current) continue;
       consumedPacketIdRef.current = packet.id;
       if (packet.path.length < 2) continue;

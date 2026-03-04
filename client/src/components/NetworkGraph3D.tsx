@@ -72,7 +72,7 @@ export function NetworkGraph3D({
     if (!packetAnimationEnabled || !settings.showPacketAnimation) return;
     const fg = fgRef.current;
     if (!fg) return;
-    for (const packet of recentPackets) {
+    for (const packet of [...recentPackets].reverse()) {
       if (packet.id <= packetCursorRef.current) continue;
       packetCursorRef.current = packet.id;
       const hops = packet.path;
