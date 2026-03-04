@@ -8,10 +8,11 @@ import { useWebSocket } from './hooks/useWebSocket';
 import type { NodeData } from './types';
 import { ROLE_COLORS } from './types';
 
-const isDev = window.location.port === '5173';
+const isDev = window.location.port === '9001';
+const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
 const WS_URL = isDev
   ? `ws://${window.location.hostname}:3001/ws`
-  : `ws://${window.location.host}/ws`;
+  : `${wsProtocol}//${window.location.host}/ws`;
 const API_BASE = isDev ? `http://${window.location.hostname}:3001` : '';
 
 const DEFAULT_GRAPH_SETTINGS: GraphSettings = {
