@@ -279,7 +279,8 @@ export function NetworkGraph3D({
       spriteMapRef.current.set(graphNode.hash, sprite);
     }
     // Position label above the sphere. Sphere radius ≈ nodeRelSize * ∛val = 3 * ∛(minNodeRadius/2).
-    sprite.position.y = 3 * Math.cbrt(s.minNodeRadius / 2) + 3;
+    // Cast needed because three-spritetext's typings don't expose inherited Object3D.position.
+    (sprite as unknown as { position: { y: number } }).position.y = 3 * Math.cbrt(s.minNodeRadius / 2) + 3;
     return sprite;
   }, []); // stable — reads live values from settingsRef
 
