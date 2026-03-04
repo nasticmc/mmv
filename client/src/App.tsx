@@ -36,6 +36,7 @@ export default function App() {
 const [showVizControls, setShowVizControls] = useState(false);
   const [graphSettings, setGraphSettings] = useState<GraphSettings>(DEFAULT_GRAPH_SETTINGS);
   const [mqttDisplayName, setMqttDisplayName] = useState('…');
+  const [geoCenter, setGeoCenter] = useState<{ lat: number; lng: number } | null>(null);
   // focusKey bumps each time we want the 3D camera to fly to focusNodeId.
   const [focusNodeId, setFocusNodeId] = useState<string | null>(null);
   const [focusKey, setFocusKey] = useState(0);
@@ -43,7 +44,10 @@ const [showVizControls, setShowVizControls] = useState(false);
   useEffect(() => {
     fetch(`${API_BASE}/api/config`)
       .then(r => r.json())
-      .then((d: { mqttDisplayName: string }) => setMqttDisplayName(d.mqttDisplayName))
+      .then((d: { mqttDisplayName: string; geoCenter: { lat: number; lng: number } | null }) => {
+        setMqttDisplayName(d.mqttDisplayName);
+        if (d.geoCenter) setGeoCenter(d.geoCenter);
+      })
       .catch(() => {});
   }, []);
 
@@ -82,6 +86,7 @@ const [showVizControls, setShowVizControls] = useState(false);
             settings={graphSettings}
             focusNodeId={focusNodeId}
             focusKey={focusKey}
+            geoCenter={geoCenter}
           />
         ) : (
           <NetworkGraph
@@ -90,6 +95,7 @@ const [showVizControls, setShowVizControls] = useState(false);
             selectedId={selectedId}
             onSelect={handleSelect}
             settings={graphSettings}
+            geoCenter={geoCenter}
           />
         )}
 

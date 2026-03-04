@@ -21,9 +21,19 @@ export interface GraphSettings {
 /**
  * Projects node lat/lng to a centred coordinate space (range ≈ [-scale/2, scale/2]).
  * Returns a Map of hash → {x, y} for nodes that have location data.
+ *
+ * Centre point: uses the provided override if supplied, otherwise the centroid
+ * (mean lat/lng) of all located nodes. Using the centroid rather than the
+ * bounding-box midpoint means a single outlier node doesn't drag the whole
+ * projection off-centre.
+ *
  * Only exported for reuse by NetworkGraph3D.
  */
-export function projectGeo(nodes: NodeData[], scale = 400): Map<string, { x: number; y: number }> {
+export function projectGeo(
+  nodes: NodeData[],
+  scale = 400,
+  center?: { lat: number; lng: number },
+): Map<string, { x: number; y: number }> {
   type Located = NodeData & { latitude: number; longitude: number };
   const located = nodes.filter(
     (n): n is Located => n.latitude != null && n.longitude != null
@@ -35,8 +45,10 @@ export function projectGeo(nodes: NodeData[], scale = 400): Map<string, { x: num
   const minLat = Math.min(...lats), maxLat = Math.max(...lats);
   const minLon = Math.min(...lons), maxLon = Math.max(...lons);
   const span = Math.max(maxLat - minLat, maxLon - minLon) || 1;
-  const midLat = (minLat + maxLat) / 2;
-  const midLon = (minLon + maxLon) / 2;
+
+  // Use override center, or fall back to the mean of all located nodes.
+  const midLat = center?.lat ?? located.reduce((s, n) => s + n.latitude, 0) / located.length;
+  const midLon = center?.lng ?? located.reduce((s, n) => s + n.longitude, 0) / located.length;
 
   const result = new Map<string, { x: number; y: number }>();
   for (const n of located) {
@@ -54,6 +66,7 @@ interface Props {
   selectedId: string | null;
   onSelect: (id: string | null) => void;
   settings: GraphSettings;
+  geoCenter?: { lat: number; lng: number } | null;
 }
 
 interface SimNode extends NodeData {
@@ -79,7 +92,7 @@ function edgeWidth(e: EdgeData): number {
   return Math.max(1, Math.min(e.packet_count / 8, 6));
 }
 
-export function NetworkGraph({ nodes, edges, selectedId, onSelect, settings }: Props) {
+export function NetworkGraph({ nodes, edges, selectedId, onSelect, settings, geoCenter }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   const simRef = useRef<d3.Simulation<SimNode, SimEdge> | null>(null);
   const zoomGRef = useRef<d3.Selection<SVGGElement, unknown, null, undefined> | null>(null);
@@ -160,7 +173,7 @@ export function NetworkGraph({ nodes, edges, selectedId, onSelect, settings }: P
     const W = container?.clientWidth ?? 800;
     const H = container?.clientHeight ?? 600;
 
-    const geoMap = projectGeo(nodes);
+    const geoMap = projectGeo(nodes, 400, geoCenter ?? undefined);
 
     const simNodes: SimNode[] = nodes.map((n) => {
       const existing = simNodesRef.current.find((s) => s.hash === n.hash);
