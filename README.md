@@ -79,7 +79,7 @@ npm run dev
 ```
 
 - Backend: `http://localhost:3001`
-- Frontend (Vite): `http://localhost:5173`
+- Frontend (Vite): `http://localhost:9001`
 - WebSocket: `ws://localhost:3001/ws`
 
 Run individual parts:
