@@ -24,6 +24,7 @@ const DEFAULT_GRAPH_SETTINGS: GraphSettings = {
   threeDLabelSize: 6,
   orbit: false,
   geoInfluence: 0.05,
+  animatePacketFlow: true,
 };
 
 interface ConfigResponse {
@@ -33,7 +34,7 @@ interface ConfigResponse {
 }
 
 export default function App() {
-  const { nodes, edges, stats, recentPackets, packetRatePerMinute, connected } = useWebSocket(WS_URL);
+  const { nodes, edges, stats, recentPackets, inFlightPackets, packetRatePerMinute, connected } = useWebSocket(WS_URL);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [panelOpen, setPanelOpen] = useState(false);
   const [showVizControls, setShowVizControls] = useState(false);
@@ -84,6 +85,7 @@ export default function App() {
           focusNodeId={focusNodeId}
           focusKey={focusKey}
           geoCenter={geoCenter}
+          inFlightPackets={inFlightPackets}
         />
 
         <div className="absolute left-3 right-3 top-14 z-30 md:left-1/2 md:right-auto md:top-3 md:w-72 md:-translate-x-1/2">
@@ -121,6 +123,7 @@ export default function App() {
                 <RangeControl label={`Link opacity: ${graphSettings.threeDLinkOpacity.toFixed(2)}`} min={0.1} max={1} step={0.05} value={graphSettings.threeDLinkOpacity} onChange={(v) => setGraphSettings((s) => ({ ...s, threeDLinkOpacity: v }))} />
                 <ToggleControl label="Show labels" checked={graphSettings.showLabels} onChange={(checked) => setGraphSettings((s) => ({ ...s, showLabels: checked }))} />
                 <ToggleControl label="Orbit mode" checked={graphSettings.orbit} onChange={(checked) => setGraphSettings((s) => ({ ...s, orbit: checked }))} />
+                <ToggleControl label="Animate packet flow" checked={graphSettings.animatePacketFlow} onChange={(checked) => setGraphSettings((s) => ({ ...s, animatePacketFlow: checked }))} />
                 {hasGeoNodes && <RangeControl label={`Geo influence: ${graphSettings.geoInfluence.toFixed(2)}`} min={0} max={0.3} step={0.01} value={graphSettings.geoInfluence} onChange={(v) => setGraphSettings((s) => ({ ...s, geoInfluence: v }))} />}
               </>
 

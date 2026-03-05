@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
-import type { NodeData, EdgeData, StatsData, WsMessage, PacketEvent, DebugLogEntry } from '../types';
+import type { NodeData, EdgeData, StatsData, WsMessage, PacketEvent, DebugLogEntry, InFlightPacket, InFlightHop } from '../types';
 
 interface GraphState {
   nodes: NodeData[];
@@ -11,6 +11,7 @@ interface UseWebSocketResult {
   edges: EdgeData[];
   stats: StatsData;
   recentPackets: PacketEvent[];
+  inFlightPackets: InFlightPacket[];
   packetRatePerMinute: number;
   debugLogs: DebugLogEntry[];
   connected: boolean;
@@ -23,6 +24,9 @@ const DEFAULT_STATS: StatsData = {
   advertCount: 0,
   namedNodeCount: 0,
 };
+
+const MAX_IN_FLIGHT_PACKETS = 250;
+const DEFAULT_HOP_DURATION_MS = 300;
 
 function mergeNode(nodes: NodeData[], incoming: NodeData): NodeData[] {
   const idx = nodes.findIndex(n => n.hash === incoming.hash);
@@ -42,10 +46,38 @@ function mergeEdge(edges: EdgeData[], incoming: EdgeData): EdgeData[] {
   return updated;
 }
 
+function buildInFlightPacket(msg: Extract<WsMessage, { type: 'packet' }>, now: number, id: number): InFlightPacket | null {
+  if (msg.path.length < 2) return null;
+
+  const hopCount = msg.path.length - 1;
+  const totalDuration = msg.duration && msg.duration > 0
+    ? msg.duration
+    : hopCount * DEFAULT_HOP_DURATION_MS;
+  const hopDuration = Math.max(80, totalDuration / hopCount);
+
+  const hops: InFlightHop[] = [];
+  for (let i = 0; i < msg.path.length - 1; i++) {
+    const from = msg.path[i];
+    const to = msg.path[i + 1];
+    const startMs = now + i * hopDuration;
+    hops.push({ from, to, startMs, endMs: startMs + hopDuration });
+  }
+
+  return {
+    id,
+    packetType: msg.packetType,
+    hash: msg.hash,
+    hops,
+    startedAt: now,
+    finishedAt: now + hopCount * hopDuration,
+  };
+}
+
 export function useWebSocket(url: string): UseWebSocketResult {
   const [graph, setGraph] = useState<GraphState>({ nodes: [], edges: [] });
   const [stats, setStats] = useState<StatsData>(DEFAULT_STATS);
   const [recentPackets, setRecentPackets] = useState<PacketEvent[]>([]);
+  const [inFlightPackets, setInFlightPackets] = useState<InFlightPacket[]>([]);
   const [packetRatePerMinute, setPacketRatePerMinute] = useState(0);
   const [debugLogs, setDebugLogs] = useState<DebugLogEntry[]>([]);
   const [connected, setConnected] = useState(false);
@@ -64,7 +96,6 @@ export function useWebSocket(url: string): UseWebSocketResult {
 
     ws.onclose = () => {
       setConnected(false);
-      // Reconnect after 3 seconds
       reconnectTimer.current = setTimeout(connect, 3000);
     };
 
@@ -98,30 +129,42 @@ export function useWebSocket(url: string): UseWebSocketResult {
           setStats(msg.stats);
           break;
 
-        case 'packet':
+        case 'packet': {
+          const now = Date.now();
+          const id = packetIdRef.current++;
+
           setRecentPackets(prev => {
             const entry: PacketEvent = {
-              id: packetIdRef.current++,
+              id,
               packetType: msg.packetType,
               hash: msg.hash,
               pathLen: msg.pathLen,
               path: msg.path,
               duration: msg.duration,
               observerHash: msg.observerHash,
-              receivedAt: Date.now(),
+              receivedAt: now,
             };
             return [entry, ...prev].slice(0, 50);
           });
-          {
-            const now = Date.now();
-            const cutoff = now - 60_000;
-            packetTimestampsRef.current.push(now);
-            while (packetTimestampsRef.current.length > 0 && packetTimestampsRef.current[0] < cutoff) {
-              packetTimestampsRef.current.shift();
-            }
-            setPacketRatePerMinute(packetTimestampsRef.current.length);
+
+          const inFlight = buildInFlightPacket(msg, now, id);
+          if (inFlight) {
+            setInFlightPackets((prev) => {
+              const live = prev.filter((p) => p.finishedAt >= now);
+              return [inFlight, ...live].slice(0, MAX_IN_FLIGHT_PACKETS);
+            });
+          } else {
+            setInFlightPackets((prev) => prev.filter((p) => p.finishedAt >= now));
           }
+
+          const cutoff = now - 60_000;
+          packetTimestampsRef.current.push(now);
+          while (packetTimestampsRef.current.length > 0 && packetTimestampsRef.current[0] < cutoff) {
+            packetTimestampsRef.current.shift();
+          }
+          setPacketRatePerMinute(packetTimestampsRef.current.length);
           break;
+        }
 
         case 'debug':
           setDebugLogs(prev => {
@@ -141,11 +184,24 @@ export function useWebSocket(url: string): UseWebSocketResult {
     };
   }, [connect]);
 
+  useEffect(() => {
+    const prune = setInterval(() => {
+      const now = Date.now();
+      setInFlightPackets((prev) => {
+        const live = prev.filter((p) => p.finishedAt >= now);
+        return live.length === prev.length ? prev : live;
+      });
+    }, 250);
+
+    return () => clearInterval(prune);
+  }, []);
+
   return {
     nodes: graph.nodes,
     edges: graph.edges,
     stats,
     recentPackets,
+    inFlightPackets,
     packetRatePerMinute,
     debugLogs,
     connected,
