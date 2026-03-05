@@ -18,6 +18,8 @@ export interface GraphSettings {
   orbit: boolean;
   geoInfluence: number;
   animatePacketFlow: boolean;
+  packetHighlightDurationMs: number;
+  packetHighlightMode: 'fixed' | 'packetDuration';
 }
 
 interface Props {
@@ -62,7 +64,7 @@ function canonicalLinkKey(a: string, b: string): string {
 // This prevents the D3 simulation from reheating on every incoming packet,
 // which is especially important on mobile where reheats cause visible jitter.
 const MESH_REFRESH_MS = 30_000;
-const ANIMATION_TICK_MS = 120;
+const ANIMATION_TICK_MS = 300;
 
 export function NetworkGraph3D({
   nodes, edges, selectedId, onSelect, settings, focusKey, focusNodeId, geoCenter, inFlightPackets = [],
@@ -263,6 +265,7 @@ export function NetworkGraph3D({
           if (hop.startMs <= now && hop.endMs >= now) {
             const key = canonicalLinkKey(hop.from, hop.to);
             nextLinks.set(key, (nextLinks.get(key) ?? 0) + 1);
+            nextNodeHits.add(hop.from);
             nextNodeHits.add(hop.to);
           }
         }

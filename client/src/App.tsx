@@ -25,6 +25,8 @@ const DEFAULT_GRAPH_SETTINGS: GraphSettings = {
   orbit: false,
   geoInfluence: 0.05,
   animatePacketFlow: true,
+  packetHighlightDurationMs: 5000,
+  packetHighlightMode: 'fixed',
 };
 
 interface ConfigResponse {
@@ -34,11 +36,17 @@ interface ConfigResponse {
 }
 
 export default function App() {
-  const { nodes, edges, stats, recentPackets, inFlightPackets, packetRatePerMinute, connected } = useWebSocket(WS_URL);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [panelOpen, setPanelOpen] = useState(false);
   const [showVizControls, setShowVizControls] = useState(false);
   const [graphSettings, setGraphSettings] = useState<GraphSettings>(DEFAULT_GRAPH_SETTINGS);
+  const packetFlowSettings = useMemo(() => ({
+    enabled: graphSettings.animatePacketFlow,
+    highlightDurationMs: graphSettings.packetHighlightDurationMs,
+    highlightMode: graphSettings.packetHighlightMode,
+  }), [graphSettings.animatePacketFlow, graphSettings.packetHighlightDurationMs, graphSettings.packetHighlightMode]);
+
+  const { nodes, edges, stats, recentPackets, inFlightPackets, packetRatePerMinute, connected } = useWebSocket(WS_URL, packetFlowSettings);
   const [mqttDisplayName, setMqttDisplayName] = useState('…');
   const [geoEnabled, setGeoEnabled] = useState(true);
   const [geoCenter, setGeoCenter] = useState<{ lat: number; lng: number } | null>(null);
@@ -124,6 +132,25 @@ export default function App() {
                 <ToggleControl label="Show labels" checked={graphSettings.showLabels} onChange={(checked) => setGraphSettings((s) => ({ ...s, showLabels: checked }))} />
                 <ToggleControl label="Orbit mode" checked={graphSettings.orbit} onChange={(checked) => setGraphSettings((s) => ({ ...s, orbit: checked }))} />
                 <ToggleControl label="Animate packet flow" checked={graphSettings.animatePacketFlow} onChange={(checked) => setGraphSettings((s) => ({ ...s, animatePacketFlow: checked }))} />
+                <RangeControl
+                  label={`Packet highlight (ms): ${graphSettings.packetHighlightDurationMs}`}
+                  min={500}
+                  max={15000}
+                  step={100}
+                  value={graphSettings.packetHighlightDurationMs}
+                  onChange={(v) => setGraphSettings((s) => ({ ...s, packetHighlightDurationMs: v }))}
+                  disabled={!graphSettings.animatePacketFlow || graphSettings.packetHighlightMode === 'packetDuration'}
+                />
+                <SelectControl
+                  label="Packet highlight timing"
+                  value={graphSettings.packetHighlightMode}
+                  onChange={(value) => setGraphSettings((s) => ({ ...s, packetHighlightMode: value }))}
+                  options={[
+                    { value: 'fixed', label: 'Fixed duration' },
+                    { value: 'packetDuration', label: 'Use packet duration' },
+                  ]}
+                  disabled={!graphSettings.animatePacketFlow}
+                />
                 {hasGeoNodes && <RangeControl label={`Geo influence: ${graphSettings.geoInfluence.toFixed(2)}`} min={0} max={0.3} step={0.01} value={graphSettings.geoInfluence} onChange={(v) => setGraphSettings((s) => ({ ...s, geoInfluence: v }))} />}
               </>
 
@@ -281,6 +308,35 @@ function ToggleControl({ label, checked, onChange, disabled = false }: ToggleCon
         disabled={disabled}
         onChange={(e) => onChange(e.target.checked)}
       />
+    </label>
+  );
+}
+
+
+interface SelectControlProps {
+  label: string;
+  value: 'fixed' | 'packetDuration';
+  onChange: (value: 'fixed' | 'packetDuration') => void;
+  options: Array<{ value: 'fixed' | 'packetDuration'; label: string }>;
+  disabled?: boolean;
+}
+
+function SelectControl({ label, value, onChange, options, disabled = false }: SelectControlProps) {
+  return (
+    <label className={`block space-y-1 ${disabled ? 'opacity-50' : ''}`}>
+      <div className="text-gray-300">{label}</div>
+      <select
+        className="w-full rounded border border-gray-700 bg-gray-800 px-2 py-1 text-xs text-gray-100"
+        value={value}
+        disabled={disabled}
+        onChange={(e) => onChange(e.target.value as 'fixed' | 'packetDuration')}
+      >
+        {options.map((option) => (
+          <option key={option.value} value={option.value}>
+            {option.label}
+          </option>
+        ))}
+      </select>
     </label>
   );
 }

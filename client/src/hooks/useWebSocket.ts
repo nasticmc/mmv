@@ -6,6 +6,12 @@ interface GraphState {
   edges: EdgeData[];
 }
 
+interface PacketFlowSettings {
+  enabled: boolean;
+  highlightDurationMs: number;
+  highlightMode: 'fixed' | 'packetDuration';
+}
+
 interface UseWebSocketResult {
   nodes: NodeData[];
   edges: EdgeData[];
@@ -46,21 +52,36 @@ function mergeEdge(edges: EdgeData[], incoming: EdgeData): EdgeData[] {
   return updated;
 }
 
-function buildInFlightPacket(msg: Extract<WsMessage, { type: 'packet' }>, now: number, id: number): InFlightPacket | null {
-  if (msg.path.length < 2) return null;
+function buildInFlightPacket(
+  msg: Extract<WsMessage, { type: 'packet' }>,
+  now: number,
+  id: number,
+  settings: PacketFlowSettings,
+): InFlightPacket | null {
+  if (!settings.enabled || msg.path.length < 2) return null;
 
-  const hopCount = msg.path.length - 1;
-  const totalDuration = msg.duration && msg.duration > 0
-    ? msg.duration
-    : hopCount * DEFAULT_HOP_DURATION_MS;
-  const hopDuration = Math.max(80, totalDuration / hopCount);
+  const hopPairs = msg.path.length - 1;
+  const pathNodes = [...msg.path];
+  if (msg.observerHash && pathNodes[pathNodes.length - 1] !== msg.observerHash) {
+    pathNodes.push(msg.observerHash);
+  }
+
+  if (pathNodes.length < 2) return null;
+
+  const fixedDurationMs = Math.max(500, settings.highlightDurationMs);
+  const packetDurationMs = msg.duration && msg.duration > 0
+    ? Math.max(500, msg.duration)
+    : hopPairs * DEFAULT_HOP_DURATION_MS;
+
+  const totalDuration = settings.highlightMode === 'packetDuration'
+    ? packetDurationMs
+    : fixedDurationMs;
 
   const hops: InFlightHop[] = [];
-  for (let i = 0; i < msg.path.length - 1; i++) {
-    const from = msg.path[i];
-    const to = msg.path[i + 1];
-    const startMs = now + i * hopDuration;
-    hops.push({ from, to, startMs, endMs: startMs + hopDuration });
+  for (let i = 0; i < pathNodes.length - 1; i++) {
+    const from = pathNodes[i];
+    const to = pathNodes[i + 1];
+    hops.push({ from, to, startMs: now, endMs: now + totalDuration });
   }
 
   return {
@@ -69,11 +90,11 @@ function buildInFlightPacket(msg: Extract<WsMessage, { type: 'packet' }>, now: n
     hash: msg.hash,
     hops,
     startedAt: now,
-    finishedAt: now + hopCount * hopDuration,
+    finishedAt: now + totalDuration,
   };
 }
 
-export function useWebSocket(url: string): UseWebSocketResult {
+export function useWebSocket(url: string, packetFlowSettings: PacketFlowSettings): UseWebSocketResult {
   const [graph, setGraph] = useState<GraphState>({ nodes: [], edges: [] });
   const [stats, setStats] = useState<StatsData>(DEFAULT_STATS);
   const [recentPackets, setRecentPackets] = useState<PacketEvent[]>([]);
@@ -147,7 +168,7 @@ export function useWebSocket(url: string): UseWebSocketResult {
             return [entry, ...prev].slice(0, 50);
           });
 
-          const inFlight = buildInFlightPacket(msg, now, id);
+          const inFlight = buildInFlightPacket(msg, now, id, packetFlowSettings);
           if (inFlight) {
             setInFlightPackets((prev) => {
               const live = prev.filter((p) => p.finishedAt >= now);
@@ -174,7 +195,7 @@ export function useWebSocket(url: string): UseWebSocketResult {
           break;
       }
     };
-  }, [url]);
+  }, [packetFlowSettings, url]);
 
   useEffect(() => {
     connect();
