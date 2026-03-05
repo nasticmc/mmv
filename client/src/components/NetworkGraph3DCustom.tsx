@@ -97,8 +97,11 @@ export function NetworkGraph3DCustom({
   const selectedIdRef = useRef(selectedId);
   selectedIdRef.current = selectedId;
 
-  /** Current packet-path node ids — used by the inFlightPackets effect. */
+  /** Current packet-path node ids — used by the packet-hit interval. */
   const activePacketHitsRef = useRef(new Set<string>());
+  /** Always-current copy of inFlightPackets for the interval callback. */
+  const inFlightRef = useRef<InFlightPacket[]>(inFlightPackets);
+  inFlightRef.current = inFlightPackets;
 
   // Stable ref for onSelect — so the renderer callback never goes stale when
   // App.tsx re-renders (e.g. isMobileViewport changes and recreates handleSelect).
@@ -390,32 +393,39 @@ export function NetworkGraph3DCustom({
   }, [selectedId]);
 
   // ---- Packet-path edge highlights ----
+  // Runs on a 100 ms interval so the union of active paths updates continuously —
+  // new paths appear within one tick and expired paths are cleared without waiting
+  // for the next packet to arrive.
   useEffect(() => {
-    const r = rendererRef.current;
-    if (!r || !settings.animatePacketFlow) {
-      if (activePacketHitsRef.current.size > 0) {
-        activePacketHitsRef.current = new Set();
-        r?.setPacketHits(activePacketHitsRef.current);
+    const evaluate = () => {
+      const r = rendererRef.current;
+      if (!r || !settingsRef.current.animatePacketFlow) {
+        if (activePacketHitsRef.current.size > 0) {
+          activePacketHitsRef.current = new Set();
+          r?.setPacketHits(activePacketHitsRef.current);
+        }
+        return;
       }
-      return;
-    }
-    const now = Date.now();
-    const next = new Set<string>();
-    for (const pkt of inFlightPackets) {
-      if (pkt.finishedAt < now || pkt.startedAt > now) continue;
-      for (const h of pkt.highlightedNodes) next.add(h);
-    }
-    const prev = activePacketHitsRef.current;
-    let changed = next.size !== prev.size;
-    if (!changed) {
-      for (const h of next) {
-        if (!prev.has(h)) { changed = true; break; }
+      const now = Date.now();
+      const next = new Set<string>();
+      for (const pkt of inFlightRef.current) {
+        if (pkt.finishedAt < now || pkt.startedAt > now) continue;
+        for (const h of pkt.highlightedNodes) next.add(h);
       }
-    }
-    if (!changed) return;
-    activePacketHitsRef.current = next;
-    r.setPacketHits(next);
-  }, [inFlightPackets, settings.animatePacketFlow]);
+      const prev = activePacketHitsRef.current;
+      let changed = next.size !== prev.size;
+      if (!changed) {
+        for (const h of next) {
+          if (!prev.has(h)) { changed = true; break; }
+        }
+      }
+      if (!changed) return;
+      activePacketHitsRef.current = next;
+      r.setPacketHits(next);
+    };
+    const id = setInterval(evaluate, 100);
+    return () => clearInterval(id);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ---- Orbit mode ----
   useEffect(() => {

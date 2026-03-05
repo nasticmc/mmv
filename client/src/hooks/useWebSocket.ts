@@ -85,9 +85,9 @@ function buildInFlightPacket(
   const highlightedNodes = [...new Set(pathNodes)];
   if (highlightedNodes.length === 0) return null;
 
-  const totalDuration = msg.duration && msg.duration > 0
-    ? Math.max(500, msg.duration)
-    : Math.max(500, msg.pathLen * DEFAULT_HOP_DURATION_MS);
+  const totalDuration = Math.max(5000, msg.duration && msg.duration > 0
+    ? msg.duration
+    : msg.pathLen * DEFAULT_HOP_DURATION_MS);
 
   return {
     id,
