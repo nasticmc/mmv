@@ -8,8 +8,6 @@ interface GraphState {
 
 interface PacketFlowSettings {
   enabled: boolean;
-  highlightDurationMs: number;
-  highlightMode: 'fixed' | 'packetDuration';
   observationWindowMs: number;
   maxInFlightPackets: number;
 }
@@ -87,14 +85,9 @@ function buildInFlightPacket(
   const highlightedNodes = [...new Set(pathNodes)];
   if (highlightedNodes.length === 0) return null;
 
-  const fixedDurationMs = Math.max(500, settings.highlightDurationMs);
-  const packetDurationMs = msg.duration && msg.duration > 0
+  const totalDuration = msg.duration && msg.duration > 0
     ? Math.max(500, msg.duration)
     : Math.max(500, msg.pathLen * DEFAULT_HOP_DURATION_MS);
-
-  const totalDuration = settings.highlightMode === 'packetDuration'
-    ? packetDurationMs
-    : fixedDurationMs;
 
   return {
     id,

@@ -28,8 +28,6 @@ const DEFAULT_GRAPH_SETTINGS: GraphSettings = {
   orbit: false,
   geoInfluence: 0.1,
   animatePacketFlow: true,
-  packetHighlightDurationMs: 5000,
-  packetHighlightMode: 'fixed',
   packetObservationWindowMs: 300,
 };
 
@@ -74,14 +72,10 @@ export default function App() {
 
   const packetFlowSettings = useMemo(() => ({
     enabled: graphSettings.animatePacketFlow,
-    highlightDurationMs: graphSettings.packetHighlightDurationMs,
-    highlightMode: graphSettings.packetHighlightMode,
     observationWindowMs: graphSettings.packetObservationWindowMs,
     maxInFlightPackets: isLikelyMobile ? 24 : 80,
   }), [
     graphSettings.animatePacketFlow,
-    graphSettings.packetHighlightDurationMs,
-    graphSettings.packetHighlightMode,
     graphSettings.packetObservationWindowMs,
     isLikelyMobile,
   ]);
@@ -150,12 +144,12 @@ export default function App() {
   const applyPacketPreset = (preset: 'responsive' | 'balanced' | 'battery') => {
     setGraphSettings((prev) => {
       if (preset === 'responsive') {
-        return { ...prev, packetObservationWindowMs: 50, packetHighlightDurationMs: 2500, packetHighlightMode: 'fixed' };
+        return { ...prev, packetObservationWindowMs: 50 };
       }
       if (preset === 'battery') {
-        return { ...prev, packetObservationWindowMs: 800, packetHighlightDurationMs: 7000, packetHighlightMode: 'fixed', showLabels: false };
+        return { ...prev, packetObservationWindowMs: 800, showLabels: false };
       }
-      return { ...prev, packetObservationWindowMs: 300, packetHighlightDurationMs: 5000 };
+      return { ...prev, packetObservationWindowMs: 300 };
     });
   };
 
@@ -235,25 +229,6 @@ export default function App() {
                 <button className="flex-1 rounded border border-gray-700 bg-gray-800 px-2 py-1 text-gray-200 hover:bg-gray-700" onClick={() => applyPacketPreset('balanced')}>Balanced</button>
                 <button className="flex-1 rounded border border-gray-700 bg-gray-800 px-2 py-1 text-gray-200 hover:bg-gray-700" onClick={() => applyPacketPreset('battery')}>Battery</button>
               </div>
-              <RangeControl
-                label={`Packet highlight (ms): ${graphSettings.packetHighlightDurationMs}`}
-                min={500}
-                max={15000}
-                step={100}
-                value={graphSettings.packetHighlightDurationMs}
-                onChange={(v) => setGraphSettings((s) => ({ ...s, packetHighlightDurationMs: v }))}
-                disabled={!graphSettings.animatePacketFlow || graphSettings.packetHighlightMode === 'packetDuration'}
-              />
-              <SelectControl
-                label="Packet highlight timing"
-                value={graphSettings.packetHighlightMode}
-                onChange={(value) => setGraphSettings((s) => ({ ...s, packetHighlightMode: value }))}
-                options={[
-                  { value: 'fixed', label: 'Fixed duration' },
-                  { value: 'packetDuration', label: 'Use packet duration' },
-                ]}
-                disabled={!graphSettings.animatePacketFlow}
-              />
               <RangeControl
                 label={`Packet batch window (ms): ${graphSettings.packetObservationWindowMs}`}
                 min={0}
@@ -450,35 +425,6 @@ function ToggleControl({ label, checked, onChange, disabled = false }: ToggleCon
         disabled={disabled}
         onChange={(e) => onChange(e.target.checked)}
       />
-    </label>
-  );
-}
-
-
-interface SelectControlProps {
-  label: string;
-  value: 'fixed' | 'packetDuration';
-  onChange: (value: 'fixed' | 'packetDuration') => void;
-  options: Array<{ value: 'fixed' | 'packetDuration'; label: string }>;
-  disabled?: boolean;
-}
-
-function SelectControl({ label, value, onChange, options, disabled = false }: SelectControlProps) {
-  return (
-    <label className={`block space-y-1 ${disabled ? 'opacity-50' : ''}`}>
-      <div className="text-gray-300">{label}</div>
-      <select
-        className="w-full rounded border border-gray-700 bg-gray-800 px-2 py-1 text-xs text-gray-100"
-        value={value}
-        disabled={disabled}
-        onChange={(e) => onChange(e.target.value as 'fixed' | 'packetDuration')}
-      >
-        {options.map((option) => (
-          <option key={option.value} value={option.value}>
-            {option.label}
-          </option>
-        ))}
-      </select>
     </label>
   );
 }

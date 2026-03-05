@@ -40,8 +40,6 @@ export interface GraphSettings {
   orbit: boolean;
   geoInfluence: number;
   animatePacketFlow: boolean;
-  packetHighlightDurationMs: number;
-  packetHighlightMode: 'fixed' | 'packetDuration';
   packetObservationWindowMs: number;
 }
 
