@@ -308,7 +308,7 @@ export default function App() {
             <button className={`flex-1 rounded border px-2 py-1 text-xs font-mono ${mobileTab === 'visualizer' ? 'border-purple-500 bg-purple-600 text-white' : 'border-gray-700 bg-gray-900 text-gray-300'}`} onClick={() => setMobileTab('visualizer')}>Visualizer</button>
             <button className={`flex-1 rounded border px-2 py-1 text-xs font-mono ${mobileTab === 'packets' ? 'border-purple-500 bg-purple-600 text-white' : 'border-gray-700 bg-gray-900 text-gray-300'}`} onClick={() => setMobileTab('packets')}>Packet log</button>
           </div>
-          <div className="flex-1 min-h-0 relative">
+          <div className="flex flex-1 min-h-0 relative">
             {mobileTab === 'visualizer' ? (
               renderGraph()
             ) : (
