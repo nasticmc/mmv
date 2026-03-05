@@ -1,5 +1,19 @@
 # Versions
 
+## [0.7.1] – 2026-03-05
+
+### Changed
+- Packet animation now highlights nodes only (no moving inter-hop particles)
+- Packet highlights continue to support fixed duration or packet-duration timing via Viz Settings
+- Reduced packet highlight refresh cadence to lower render churn during active traffic
+- Project naming updated to **MeshCore MQTT Visualiser** across UI and docs
+
+### Docs
+- Updated README project title and summary naming to MeshCore MQTT Visualiser
+- Added this release entry to the changelog
+
+---
+
 ## [0.7.0] – 2026-03-04
 
 ### Added

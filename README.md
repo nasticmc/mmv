@@ -1,6 +1,6 @@
-# MMV — Mesh MQTT Visualizer
+# MeshCore MQTT Visualiser
 
-MMV is a real-time MeshCore topology visualizer.
+MeshCore MQTT Visualiser is a real-time MeshCore topology visualiser.
 
 It listens to MeshCore packets from MQTT, infers node/edge relationships from path hops, stores state in SQLite, and streams live updates to a React UI over WebSocket.
 

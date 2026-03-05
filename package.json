@@ -1,7 +1,7 @@
 {
   "name": "mmv",
   "version": "1.0.0",
-  "description": "Mesh network visualizer - MQTT-connected MeshCore node topology viewer",
+  "description": "MeshCore MQTT Visualiser - MQTT-connected MeshCore node topology viewer",
   "main": "dist/index.js",
   "scripts": {
     "dev:server": "tsx watch src/index.ts",

@@ -81,7 +81,6 @@ export function NetworkGraph3D({
   const selectedIdRef = useRef(selectedId);
   const settingsRef = useRef(settings);
   settingsRef.current = settings;
-  const activeLinksRef = useRef(new Map<string, number>());
   const activeNodeHitsRef = useRef(new Set<string>());
 
   // Orbit animation state
@@ -256,33 +255,17 @@ export function NetworkGraph3D({
   useEffect(() => {
     const applyAnimationFrame = () => {
       const now = Date.now();
-      const nextLinks = new Map<string, number>();
       const nextNodeHits = new Set<string>();
 
       for (const packet of inFlightPackets) {
-        if (packet.finishedAt < now) continue;
-        for (const hop of packet.hops) {
-          if (hop.startMs <= now && hop.endMs >= now) {
-            const key = canonicalLinkKey(hop.from, hop.to);
-            nextLinks.set(key, (nextLinks.get(key) ?? 0) + 1);
-            nextNodeHits.add(hop.from);
-            nextNodeHits.add(hop.to);
-          }
+        if (packet.finishedAt < now || packet.startedAt > now) continue;
+        for (const hash of packet.highlightedNodes) {
+          nextNodeHits.add(hash);
         }
       }
 
-      const prevLinks = activeLinksRef.current;
       const prevNodeHits = activeNodeHitsRef.current;
-      let changed = nextLinks.size !== prevLinks.size || nextNodeHits.size !== prevNodeHits.size;
-
-      if (!changed) {
-        for (const [key, count] of nextLinks) {
-          if (prevLinks.get(key) !== count) {
-            changed = true;
-            break;
-          }
-        }
-      }
+      let changed = nextNodeHits.size !== prevNodeHits.size;
 
       if (!changed) {
         for (const hash of nextNodeHits) {
@@ -295,14 +278,12 @@ export function NetworkGraph3D({
 
       if (!changed) return;
 
-      activeLinksRef.current = nextLinks;
       activeNodeHitsRef.current = nextNodeHits;
       fgRef.current?.refresh();
     };
 
     if (!settings.animatePacketFlow) {
-      if (activeLinksRef.current.size > 0 || activeNodeHitsRef.current.size > 0) {
-        activeLinksRef.current = new Map();
+      if (activeNodeHitsRef.current.size > 0) {
         activeNodeHitsRef.current = new Set();
         fgRef.current?.refresh();
       }
@@ -387,9 +368,6 @@ export function NetworkGraph3D({
   const linkColorCb = useCallback((link: object) => {
     const s = linkEndId((link as GraphLink).source);
     const t = linkEndId((link as GraphLink).target);
-    const isActive = settingsRef.current.animatePacketFlow && activeLinksRef.current.has(canonicalLinkKey(s, t));
-    if (isActive) return '#93c5fd';
-
     const sel = selectedIdRef.current;
     if (!sel) return '#2563eb';
     return s === sel || t === sel ? '#fbbf24' : '#1e3558';
@@ -460,15 +438,6 @@ export function NetworkGraph3D({
     };
   }, [settings.orbit]);
 
-  const linkDirectionalParticlesCb = useCallback((link: object) => {
-    if (!settingsRef.current.animatePacketFlow) return 0;
-    const s = linkEndId((link as GraphLink).source);
-    const t = linkEndId((link as GraphLink).target);
-    const active = activeLinksRef.current.get(canonicalLinkKey(s, t)) ?? 0;
-    return active > 0 ? Math.min(6, active) : 0;
-  }, []);
-
-  const linkDirectionalParticleColorCb = useCallback(() => '#f8fafc', []);
 
   return (
     <div ref={containerRef} className="flex-1 relative overflow-hidden" style={{ minHeight: 0 }}>
@@ -488,10 +457,6 @@ export function NetworkGraph3D({
           linkWidth={linkWidthCb}
           linkColor={linkColorCb}
           linkOpacity={settings.threeDLinkOpacity}
-          linkDirectionalParticles={linkDirectionalParticlesCb}
-          linkDirectionalParticleWidth={2.5}
-          linkDirectionalParticleSpeed={0.008}
-          linkDirectionalParticleColor={linkDirectionalParticleColorCb}
           onNodeClick={(node) => {
             // Always select the clicked node. If it was already selected the
             // parent will re-open the panel rather than deselecting.

@@ -11,7 +11,7 @@ export function StatsBar({ stats, connected, packetRate, mqttDisplayName }: Prop
   return (
     <div className="px-3 py-2 bg-gray-900 border-b border-gray-800 font-mono shrink-0">
       <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm">
-        <span className="text-gray-300 font-semibold tracking-wide">🕸 MMV</span>
+        <span className="text-gray-300 font-semibold tracking-wide">🕸 MeshCore MQTT Visualiser</span>
 
         <div className="flex items-center gap-1.5">
           <span

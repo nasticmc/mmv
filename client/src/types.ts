@@ -39,18 +39,11 @@ export interface PacketEvent {
   receivedAt: number;
 }
 
-export interface InFlightHop {
-  from: string;
-  to: string;
-  startMs: number;
-  endMs: number;
-}
-
 export interface InFlightPacket {
   id: number;
   packetType: string;
   hash: string;
-  hops: InFlightHop[];
+  highlightedNodes: string[];
   startedAt: number;
   finishedAt: number;
 }

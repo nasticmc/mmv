@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
-import type { NodeData, EdgeData, StatsData, WsMessage, PacketEvent, DebugLogEntry, InFlightPacket, InFlightHop } from '../types';
+import type { NodeData, EdgeData, StatsData, WsMessage, PacketEvent, DebugLogEntry, InFlightPacket } from '../types';
 
 interface GraphState {
   nodes: NodeData[];
@@ -58,37 +58,30 @@ function buildInFlightPacket(
   id: number,
   settings: PacketFlowSettings,
 ): InFlightPacket | null {
-  if (!settings.enabled || msg.path.length < 2) return null;
+  if (!settings.enabled || msg.path.length < 1) return null;
 
-  const hopPairs = msg.path.length - 1;
   const pathNodes = [...msg.path];
   if (msg.observerHash && pathNodes[pathNodes.length - 1] !== msg.observerHash) {
     pathNodes.push(msg.observerHash);
   }
 
-  if (pathNodes.length < 2) return null;
+  const highlightedNodes = [...new Set(pathNodes)];
+  if (highlightedNodes.length === 0) return null;
 
   const fixedDurationMs = Math.max(500, settings.highlightDurationMs);
   const packetDurationMs = msg.duration && msg.duration > 0
     ? Math.max(500, msg.duration)
-    : hopPairs * DEFAULT_HOP_DURATION_MS;
+    : Math.max(500, msg.pathLen * DEFAULT_HOP_DURATION_MS);
 
   const totalDuration = settings.highlightMode === 'packetDuration'
     ? packetDurationMs
     : fixedDurationMs;
 
-  const hops: InFlightHop[] = [];
-  for (let i = 0; i < pathNodes.length - 1; i++) {
-    const from = pathNodes[i];
-    const to = pathNodes[i + 1];
-    hops.push({ from, to, startMs: now, endMs: now + totalDuration });
-  }
-
   return {
     id,
     packetType: msg.packetType,
     hash: msg.hash,
-    hops,
+    highlightedNodes,
     startedAt: now,
     finishedAt: now + totalDuration,
   };
