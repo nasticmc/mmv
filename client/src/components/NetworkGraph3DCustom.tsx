@@ -101,6 +101,11 @@ export function NetworkGraph3DCustom({
 
   const activeHitsRef = useRef(new Set<string>());
 
+  // Stable ref for onSelect — so the renderer callback never goes stale when
+  // App.tsx re-renders (e.g. isMobileViewport changes and recreates handleSelect).
+  const onSelectRef = useRef(onSelect);
+  onSelectRef.current = onSelect;
+
   // Mutable D3 sim node/link arrays — D3 writes x/y/z/vx/vy/vz into these objects.
   const simNodesRef = useRef<GraphSimNode[]>([]);
   const simLinksRef = useRef<GraphSimLink[]>([]);
@@ -129,7 +134,7 @@ export function NetworkGraph3DCustom({
     const canvas = canvasRef.current!;
     const container = containerRef.current;
 
-    const renderer = new MeshRenderer(canvas, (id) => onSelect(id));
+    const renderer = new MeshRenderer(canvas, (id) => onSelectRef.current(id));
     rendererRef.current = renderer;
 
     // Set initial size from the container's current dimensions
@@ -214,15 +219,16 @@ export function NetworkGraph3DCustom({
     simLinksRef.current = newSimLinks;
 
     // Compute structural fingerprints (sorted node ids + sorted edge canonical keys).
-    // This is O(n log n) but n is small (<1000) and only runs on node/edge prop changes.
+    // O(n log n) but only runs on prop changes — not on every packet.
     const nodeFp = nodes.map(n => n.hash).sort().join(',');
     const edgeFp = [...linkMap.keys()].sort().join(',');
-    const structureChanged = nodeFp !== nodeIdsFpRef.current || edgeFp !== edgeIdsFpRef.current;
+    const prevNodeFp = nodeIdsFpRef.current;
+    const structureChanged = nodeFp !== prevNodeFp || edgeFp !== edgeIdsFpRef.current;
     nodeIdsFpRef.current = nodeFp;
     edgeIdsFpRef.current = edgeFp;
 
     if (structureChanged) {
-      // Feed updated structure into D3 and reheat gently
+      // Feed updated structure into D3
       sim.nodes(newSimNodes);
       (sim.force('link') as ForceLink3D<GraphSimNode, GraphSimLink>).links(newSimLinks);
 
@@ -242,9 +248,19 @@ export function NetworkGraph3DCustom({
           return baseCharge * (1 + 2 * (deg / maxDeg)) / 3;
         },
       );
-      sim.alpha(Math.max(sim.alpha(), 0.3)).restart();
 
-      // Full topology rebuild in renderer (new index maps, edge geometry, labels)
+      // On first load (graph was empty before) run warmup ticks synchronously so
+      // nodes appear already settled rather than visibly scattering from the origin.
+      // setTopology() reads n.x/y/z after tick() to seed the initial positions.
+      if (prevNodeFp === '') {
+        sim.tick(100);
+        sim.restart(); // continue cooling down asynchronously
+      } else {
+        sim.alpha(Math.max(sim.alpha(), 0.3)).restart();
+      }
+
+      // Full topology rebuild in renderer (new index maps, edge geometry, labels).
+      // Called AFTER tick() so initial positions are the post-warmup positions.
       rendererRef.current?.setTopology(newSimNodes, newSimLinks);
     } else {
       // Only metadata changed (packet counts etc.) — update labels/colours, no reheat
