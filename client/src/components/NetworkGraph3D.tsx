@@ -2,10 +2,22 @@ import { useMemo, useRef, useState, useEffect, useCallback } from 'react';
 import ForceGraph3D from 'react-force-graph-3d';
 import SpriteText from 'three-spritetext';
 import * as d3 from 'd3';
-import type { EdgeData, NodeData, PacketEvent } from '../types';
+import type { EdgeData, NodeData } from '../types';
 import { ROLE_COLORS } from '../types';
-import type { GraphSettings } from './NetworkGraph';
-import { projectGeo } from './NetworkGraph';
+import { projectGeo } from '../lib/geo';
+
+
+export interface GraphSettings {
+  minNodeRadius: number;
+  linkDistance: number;
+  linkStrength: number;
+  chargeStrength: number;
+  showLabels: boolean;
+  threeDLinkOpacity: number;
+  threeDLabelSize: number;
+  orbit: boolean;
+  geoInfluence: number;
+}
 
 interface Props {
   nodes: NodeData[];
@@ -16,8 +28,6 @@ interface Props {
   /** Bumping this number triggers a camera fly to focusNodeId. */
   focusKey?: number;
   focusNodeId?: string | null;
-  recentPackets: PacketEvent[];
-  packetAnimationEnabled: boolean;
   geoCenter?: { lat: number; lng: number } | null;
 }
 
@@ -47,7 +57,7 @@ function linkEndId(end: string | number | GraphNode | object): string {
 const MESH_REFRESH_MS = 30_000;
 
 export function NetworkGraph3D({
-  nodes, edges, selectedId, onSelect, settings, focusKey, focusNodeId, recentPackets, packetAnimationEnabled, geoCenter,
+  nodes, edges, selectedId, onSelect, settings, focusKey, focusNodeId, geoCenter,
 }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   const fgRef = useRef<any>(null);
@@ -66,32 +76,6 @@ export function NetworkGraph3D({
   const orbitRafRef = useRef<number | null>(null);
   const orbitingRef = useRef(false);
   const orbitAngleRef = useRef<number | null>(null);
-  const packetCursorRef = useRef(-1);
-
-  useEffect(() => {
-    if (!packetAnimationEnabled || !settings.showPacketAnimation) return;
-    const fg = fgRef.current;
-    if (!fg) return;
-    for (const packet of [...recentPackets].reverse()) {
-      if (packet.id <= packetCursorRef.current) continue;
-      packetCursorRef.current = packet.id;
-      const hops = packet.path;
-      if (hops.length < 2) continue;
-      const segmentMs = Math.max(80, Math.min((packet.duration ?? (hops.length - 1) * 250) / (hops.length - 1), 2000));
-      hops.slice(0, -1).forEach((from, i) => {
-        const to = hops[i + 1];
-        setTimeout(() => {
-          const link = (fg.graphData().links as GraphLink[]).find((l) => {
-            const s = linkEndId(l.source);
-            const t = linkEndId(l.target);
-            return (s === from && t === to) || (s === to && t === from);
-          });
-          if (link) fg.emitParticle(link);
-        }, i * segmentMs);
-      });
-    }
-  }, [recentPackets, packetAnimationEnabled, settings.showPacketAnimation]);
-
   useEffect(() => {
     const container = containerRef.current;
     if (!container) return;
