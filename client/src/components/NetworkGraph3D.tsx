@@ -62,6 +62,7 @@ function canonicalLinkKey(a: string, b: string): string {
 // This prevents the D3 simulation from reheating on every incoming packet,
 // which is especially important on mobile where reheats cause visible jitter.
 const MESH_REFRESH_MS = 30_000;
+const ANIMATION_TICK_MS = 120;
 
 export function NetworkGraph3D({
   nodes, edges, selectedId, onSelect, settings, focusKey, focusNodeId, geoCenter, inFlightPackets = [],
@@ -250,43 +251,69 @@ export function NetworkGraph3D({
     fg.d3Force('geoY', null);
   }, [displayData.nodes, settings.geoInfluence, geoCenter]);
 
-  const [animationNowMs, setAnimationNowMs] = useState(() => Date.now());
-
   useEffect(() => {
-    if (!settings.animatePacketFlow) return;
-    const id = setInterval(() => setAnimationNowMs(Date.now()), 50);
-    return () => clearInterval(id);
-  }, [settings.animatePacketFlow]);
+    const applyAnimationFrame = () => {
+      const now = Date.now();
+      const nextLinks = new Map<string, number>();
+      const nextNodeHits = new Set<string>();
 
-  const activeAnimations = useMemo(() => {
-    if (!settings.animatePacketFlow) {
-      return { links: new Map<string, number>(), nodeHits: new Set<string>() };
-    }
-
-    const links = new Map<string, number>();
-    const nodeHits = new Set<string>();
-
-    for (const packet of inFlightPackets) {
-      if (packet.finishedAt < animationNowMs) continue;
-      for (const hop of packet.hops) {
-        if (hop.startMs <= animationNowMs && hop.endMs >= animationNowMs) {
-          const key = canonicalLinkKey(hop.from, hop.to);
-          links.set(key, (links.get(key) ?? 0) + 1);
-          nodeHits.add(hop.to);
+      for (const packet of inFlightPackets) {
+        if (packet.finishedAt < now) continue;
+        for (const hop of packet.hops) {
+          if (hop.startMs <= now && hop.endMs >= now) {
+            const key = canonicalLinkKey(hop.from, hop.to);
+            nextLinks.set(key, (nextLinks.get(key) ?? 0) + 1);
+            nextNodeHits.add(hop.to);
+          }
         }
       }
+
+      const prevLinks = activeLinksRef.current;
+      const prevNodeHits = activeNodeHitsRef.current;
+      let changed = nextLinks.size !== prevLinks.size || nextNodeHits.size !== prevNodeHits.size;
+
+      if (!changed) {
+        for (const [key, count] of nextLinks) {
+          if (prevLinks.get(key) !== count) {
+            changed = true;
+            break;
+          }
+        }
+      }
+
+      if (!changed) {
+        for (const hash of nextNodeHits) {
+          if (!prevNodeHits.has(hash)) {
+            changed = true;
+            break;
+          }
+        }
+      }
+
+      if (!changed) return;
+
+      activeLinksRef.current = nextLinks;
+      activeNodeHitsRef.current = nextNodeHits;
+      fgRef.current?.refresh();
+    };
+
+    if (!settings.animatePacketFlow) {
+      if (activeLinksRef.current.size > 0 || activeNodeHitsRef.current.size > 0) {
+        activeLinksRef.current = new Map();
+        activeNodeHitsRef.current = new Set();
+        fgRef.current?.refresh();
+      }
+      return;
     }
 
-    return { links, nodeHits };
-  }, [animationNowMs, inFlightPackets, settings.animatePacketFlow]);
+    applyAnimationFrame();
+    const id = setInterval(() => {
+      if (document.hidden) return;
+      applyAnimationFrame();
+    }, ANIMATION_TICK_MS);
 
-  activeLinksRef.current = activeAnimations.links;
-  activeNodeHitsRef.current = activeAnimations.nodeHits;
-
-  useEffect(() => {
-    if (!settings.animatePacketFlow) return;
-    fgRef.current?.refresh();
-  }, [activeAnimations, settings.animatePacketFlow]);
+    return () => clearInterval(id);
+  }, [inFlightPackets, settings.animatePacketFlow]);
 
   // Fly camera to a focused node when focusKey changes.
   useEffect(() => {

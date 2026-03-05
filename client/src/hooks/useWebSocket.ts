@@ -25,7 +25,7 @@ const DEFAULT_STATS: StatsData = {
   namedNodeCount: 0,
 };
 
-const MAX_IN_FLIGHT_PACKETS = 250;
+const MAX_IN_FLIGHT_PACKETS = 120;
 const DEFAULT_HOP_DURATION_MS = 300;
 
 function mergeNode(nodes: NodeData[], incoming: NodeData): NodeData[] {
@@ -191,7 +191,7 @@ export function useWebSocket(url: string): UseWebSocketResult {
         const live = prev.filter((p) => p.finishedAt >= now);
         return live.length === prev.length ? prev : live;
       });
-    }, 250);
+    }, 500);
 
     return () => clearInterval(prune);
   }, []);
