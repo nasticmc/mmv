@@ -12,6 +12,9 @@
 
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import { LineSegments2 } from 'three/addons/lines/LineSegments2.js';
+import { LineSegmentsGeometry } from 'three/addons/lines/LineSegmentsGeometry.js';
+import { LineMaterial } from 'three/addons/lines/LineMaterial.js';
 
 const MAX_NODES = 2048;
 // 2 vertices per edge × 3 floats; enough for a densely connected graph
@@ -96,6 +99,19 @@ export class MeshRenderer {
   private edgeMaterial: THREE.LineBasicMaterial;
   /** stored source/target id pairs for fast per-tick position updates */
   private edgePairs: [string, string][] = [];
+
+  // ---- Packet-trace state ----
+  /** node ids currently on an active packet path — drives edge highlight */
+  private packetHitSet = new Set<string>();
+  /** last selectedId passed to updateColors — kept so setPacketHits can redraw */
+  private currentSelectedId: string | null = null;
+  /** user-configured opacity, restored when packet hits are cleared */
+  private baseEdgeOpacity = 0.55;
+
+  // ---- Packet-trace overlay (thick red Line2) ----
+  private traceGeo: LineSegmentsGeometry;
+  private traceMat: LineMaterial;
+  private traceMesh: LineSegments2;
 
   // ---- Labels (individual Sprites, one per node) ----
   private labelMap = new Map<string, THREE.Sprite>();
@@ -183,6 +199,15 @@ export class MeshRenderer {
     this.edgeMesh.frustumCulled = false;
     this.scene.add(this.edgeMesh);
 
+    // ---- Packet-trace overlay — thick 2 px red lines via Line2 ----
+    this.traceGeo = new LineSegmentsGeometry();
+    this.traceMat = new LineMaterial({ color: 0xef4444, linewidth: 2, transparent: true, opacity: 1.0 });
+    this.traceMat.resolution.set(canvas.clientWidth || 800, canvas.clientHeight || 600);
+    this.traceMesh = new LineSegments2(this.traceGeo, this.traceMat);
+    this.traceMesh.frustumCulled = false;
+    this.traceMesh.visible = false;
+    this.scene.add(this.traceMesh);
+
     canvas.addEventListener('click', this.handleClick);
     this.startLoop();
   }
@@ -195,6 +220,7 @@ export class MeshRenderer {
     this.renderer.setSize(w, h, false);
     this.camera.aspect = w / h;
     this.camera.updateProjectionMatrix();
+    this.traceMat.resolution.set(w, h);
   }
 
   /**
@@ -250,7 +276,7 @@ export class MeshRenderer {
     // ---- Edges ----
     this.edgePairs = links.map(l => [linkEndId(l.source), linkEndId(l.target)]);
     this.writeEdgePositions();
-    this.writeEdgeColors(null); // default colours
+    this.writeEdgeColors(this.currentSelectedId);
 
     // ---- Labels ----
     this.syncLabels(nodes);
@@ -280,6 +306,7 @@ export class MeshRenderer {
     }
     this.nodeMesh.instanceMatrix.needsUpdate = true;
     this.writeEdgePositions();
+    if (this.traceMesh.visible) this.writeTracePositions();
   }
 
   /**
@@ -300,21 +327,16 @@ export class MeshRenderer {
   }
 
   /**
-   * Called when selection or packet-highlight state changes.
+   * Called when selection changes.
    * Updates per-instance sphere colours and per-vertex edge colours.
+   * Packet-path highlighting is handled separately via setPacketHits().
    */
-  updateColors(nodes: SimNode[], selectedId: string | null, activeHits: Set<string>) {
+  updateColors(nodes: SimNode[], selectedId: string | null) {
+    this.currentSelectedId = selectedId;
     for (const node of nodes) {
       const i = this.nodeIndexMap.get(node.id);
       if (i === undefined) continue;
-      let hex: string;
-      if (node.id === selectedId) {
-        hex = '#fbbf24';                                        // selected: amber
-      } else if (activeHits.has(node.id)) {
-        hex = node.color === '#22d3ee' ? '#67e8f9' : '#fef08a'; // packet hit: bright
-      } else {
-        hex = node.color;                                        // role colour
-      }
+      const hex = node.id === selectedId ? '#fbbf24' : node.color;
       _col.set(hex);
       this.nodeMesh.setColorAt(i, _col);
     }
@@ -323,8 +345,28 @@ export class MeshRenderer {
     this.writeEdgeColors(selectedId);
   }
 
+  /**
+   * Update the set of node ids that are on an active packet path.
+   * Any edge whose both endpoints are in the set is drawn with the packet-hit colour.
+   * Pass an empty set to clear all packet-path highlights.
+   */
+  setPacketHits(hits: Set<string>) {
+    this.packetHitSet = hits;
+    this.writeEdgeColors(this.currentSelectedId);  // dim non-trace edges when active
+    if (hits.size === 0) {
+      this.traceMesh.visible = false;
+      this.edgeMaterial.opacity = this.baseEdgeOpacity;
+      return;
+    }
+    this.edgeMaterial.opacity = Math.min(this.baseEdgeOpacity, 0.15); // dim background edges
+    this.writeTracePositions();
+  }
+
   setLinkOpacity(opacity: number) {
-    this.edgeMaterial.opacity = opacity;
+    this.baseEdgeOpacity = opacity;
+    if (this.packetHitSet.size === 0) {
+      this.edgeMaterial.opacity = opacity;
+    }
   }
 
   setLabelsVisible(visible: boolean) {
@@ -386,6 +428,8 @@ export class MeshRenderer {
     this.stopLoop();
     this.canvas.removeEventListener('click', this.handleClick);
     this.controls.dispose();
+    this.traceGeo.dispose();
+    this.traceMat.dispose();
     this.renderer.dispose();
     for (const sprite of this.labelMap.values()) {
       sprite.material.map?.dispose();
@@ -496,20 +540,45 @@ export class MeshRenderer {
     this.edgeMesh.geometry.setDrawRange(0, this.edgePairs.length * 2);
   }
 
-  /** Write per-vertex edge colours based on current selection. */
+  /** Write per-vertex edge colours based on current selection and active packet hits. */
   private writeEdgeColors(selectedId: string | null) {
     const buf = this.edgeColBuf;
+    const hits = this.packetHitSet;
+    const hasHits = hits.size > 0;
     let i = 0;
     for (const [srcId, tgtId] of this.edgePairs) {
       if (i + 6 > buf.length) break;
-      const col = selectedId
-        ? (srcId === selectedId || tgtId === selectedId ? COL_EDGE_SEL : COL_EDGE_DIM)
-        : COL_EDGE_DEFAULT;
-      // Both vertices of the line segment get the same colour
+      let col: THREE.Color;
+      if (selectedId) {
+        col = (srcId === selectedId || tgtId === selectedId) ? COL_EDGE_SEL : COL_EDGE_DIM;
+      } else if (hasHits) {
+        // Dim non-trace edges so the red overlay stands out; keep trace edges at normal colour.
+        col = (hits.has(srcId) && hits.has(tgtId)) ? COL_EDGE_DEFAULT : COL_EDGE_DIM;
+      } else {
+        col = COL_EDGE_DEFAULT;
+      }
       buf[i++] = col.r; buf[i++] = col.g; buf[i++] = col.b;
       buf[i++] = col.r; buf[i++] = col.g; buf[i++] = col.b;
     }
     this.edgeColAttr.needsUpdate = true;
+  }
+
+  /** Rebuild the Line2 trace overlay from current nodePos for all packet-hit edges. */
+  private writeTracePositions() {
+    const pts: number[] = [];
+    for (const [srcId, tgtId] of this.edgePairs) {
+      if (!this.packetHitSet.has(srcId) || !this.packetHitSet.has(tgtId)) continue;
+      const sp = this.nodePos.get(srcId);
+      const tp = this.nodePos.get(tgtId);
+      if (!sp || !tp) continue;
+      pts.push(sp.x, sp.y, sp.z, tp.x, tp.y, tp.z);
+    }
+    if (pts.length > 0) {
+      this.traceGeo.setPositions(pts);
+      this.traceMesh.visible = true;
+    } else {
+      this.traceMesh.visible = false;
+    }
   }
 
   /** Add/update/remove label sprites to match the current node set. */

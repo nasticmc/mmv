@@ -126,6 +126,11 @@ export function useWebSocket(url: string, packetFlowSettings: PacketFlowSettings
   const packetTsHeadRef = useRef(0);
   const pendingPacketsRef = useRef(new Map<string, PendingPacket>());
 
+  // Keep a ref to the latest settings so the stable WebSocket onmessage handler
+  // always reads current values without needing to reconnect on every settings change.
+  const packetFlowSettingsRef = useRef(packetFlowSettings);
+  packetFlowSettingsRef.current = packetFlowSettings;
+
   const flushPendingPacket = useCallback((key: string) => {
     const pending = pendingPacketsRef.current.get(key);
     if (!pending) return;
@@ -142,18 +147,18 @@ export function useWebSocket(url: string, packetFlowSettings: PacketFlowSettings
         startedAt: pending.startedAt,
         finishedAt: pending.finishedAt,
       };
-      return [merged, ...live].slice(0, packetFlowSettings.maxInFlightPackets);
+      return [merged, ...live].slice(0, packetFlowSettingsRef.current.maxInFlightPackets);
     });
-  }, [packetFlowSettings.maxInFlightPackets]);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const queueInFlightPacket = useCallback((msg: Extract<WsMessage, { type: 'packet' }>, packet: InFlightPacket) => {
     const now = Date.now();
-    const windowMs = Math.max(0, packetFlowSettings.observationWindowMs);
+    const windowMs = Math.max(0, packetFlowSettingsRef.current.observationWindowMs);
 
     if (windowMs === 0) {
       setInFlightPackets((prev) => {
         const live = prev.filter((p) => p.finishedAt >= now);
-        return [packet, ...live].slice(0, packetFlowSettings.maxInFlightPackets);
+        return [packet, ...live].slice(0, packetFlowSettingsRef.current.maxInFlightPackets);
       });
       return;
     }
@@ -191,7 +196,7 @@ export function useWebSocket(url: string, packetFlowSettings: PacketFlowSettings
 
     pending.timer = setTimeout(() => flushPendingPacket(key), windowMs);
     pendingPacketsRef.current.set(key, pending);
-  }, [flushPendingPacket, packetFlowSettings.maxInFlightPackets, packetFlowSettings.observationWindowMs]);
+  }, [flushPendingPacket]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const connect = useCallback(() => {
     if (wsRef.current?.readyState === WebSocket.OPEN) return;
@@ -259,7 +264,7 @@ export function useWebSocket(url: string, packetFlowSettings: PacketFlowSettings
             return [entry, ...prev].slice(0, 50);
           });
 
-          const inFlight = buildInFlightPacket(msg, now, id, packetFlowSettings);
+          const inFlight = buildInFlightPacket(msg, now, id, packetFlowSettingsRef.current);
           if (inFlight) {
             queueInFlightPacket(msg, inFlight);
           } else {
@@ -287,7 +292,7 @@ export function useWebSocket(url: string, packetFlowSettings: PacketFlowSettings
           break;
       }
     };
-  }, [packetFlowSettings, queueInFlightPacket, url]);
+  }, [queueInFlightPacket, url]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     connect();

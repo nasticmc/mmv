@@ -99,7 +99,8 @@ export function NetworkGraph3DCustom({
   const selectedIdRef = useRef(selectedId);
   selectedIdRef.current = selectedId;
 
-  const activeHitsRef = useRef(new Set<string>());
+  /** Current packet-path node ids — used by the inFlightPackets effect. */
+  const activePacketHitsRef = useRef(new Set<string>());
 
   // Stable ref for onSelect — so the renderer callback never goes stale when
   // App.tsx re-renders (e.g. isMobileViewport changes and recreates handleSelect).
@@ -114,6 +115,10 @@ export function NetworkGraph3DCustom({
   // not on every packet-count update that comes through on existing nodes.
   const nodeIdsFpRef = useRef('');
   const edgeIdsFpRef = useRef('');
+
+  // Display fingerprint: tracks name/role/observer — changes here need refreshMetadata.
+  // Pure packet-count / last_seen updates don't change this and skip the renderer.
+  const nodeDisplayFpRef = useRef('');
 
   // The D3 simulation instance, created once per mount.
   const simRef = useRef<Simulation3D<GraphSimNode> | null>(null);
@@ -227,6 +232,12 @@ export function NetworkGraph3DCustom({
     nodeIdsFpRef.current = nodeFp;
     edgeIdsFpRef.current = edgeFp;
 
+    // Display fingerprint: only name, role, and observer flag affect what the mesh
+    // looks like. packet_count / last_seen changes don't need a renderer update.
+    const displayFp = nodes.map(n => `${n.hash}:${n.name ?? ''}:${n.device_role}:${n.is_observer}`).sort().join('|');
+    const displayChanged = displayFp !== nodeDisplayFpRef.current;
+    nodeDisplayFpRef.current = displayFp;
+
     if (structureChanged) {
       // Feed updated structure into D3
       sim.nodes(newSimNodes);
@@ -256,18 +267,25 @@ export function NetworkGraph3DCustom({
         sim.tick(100);
         sim.restart(); // continue cooling down asynchronously
       } else {
-        sim.alpha(Math.max(sim.alpha(), 0.3)).restart();
+        // New nodes need more energy to find a stable position; new edges between
+        // already-known nodes only need a gentle nudge so they don't cause visible
+        // twitching across the whole graph.
+        const hasNewNodes = nodeFp !== prevNodeFp;
+        const reheatAlpha = hasNewNodes ? 0.2 : 0.05;
+        sim.alpha(Math.max(sim.alpha(), reheatAlpha)).restart();
       }
 
       // Full topology rebuild in renderer (new index maps, edge geometry, labels).
       // Called AFTER tick() so initial positions are the post-warmup positions.
       rendererRef.current?.setTopology(newSimNodes, newSimLinks);
-    } else {
-      // Only metadata changed (packet counts etc.) — update labels/colours, no reheat
+      rendererRef.current?.updateColors(newSimNodes, selectedIdRef.current);
+    } else if (displayChanged) {
+      // A node was renamed or changed role — update labels and base sphere colours,
+      // then re-apply the selection overlay. Packet hits on edges are unaffected.
       rendererRef.current?.refreshMetadata(newSimNodes);
+      rendererRef.current?.updateColors(newSimNodes, selectedIdRef.current);
     }
-
-    rendererRef.current?.updateColors(newSimNodes, selectedIdRef.current, activeHitsRef.current);
+    // else: only packet_count / last_seen changed — nothing visible to redraw.
   }, [nodes, edges]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ---- Geo forces ----
@@ -331,7 +349,7 @@ export function NetworkGraph3DCustom({
     const r = rendererRef.current;
     if (!r) return;
     r.updatePositions(simNodesRef.current);
-    r.updateColors(simNodesRef.current, selectedIdRef.current, activeHitsRef.current);
+    r.updateColors(simNodesRef.current, selectedIdRef.current);
   }, [settings.minNodeRadius]);
 
   // ---- Link opacity ----
@@ -348,19 +366,20 @@ export function NetworkGraph3DCustom({
     rendererRef.current?.setLabelSize(settings.threeDLabelSize);
   }, [settings.threeDLabelSize]);
 
-  // ---- Colour updates: selection + packet highlights ----
+  // ---- Colour updates: selection ----
   useEffect(() => {
     const r = rendererRef.current;
     if (!r) return;
-    r.updateColors(simNodesRef.current, selectedId, activeHitsRef.current);
+    r.updateColors(simNodesRef.current, selectedId);
   }, [selectedId]);
 
+  // ---- Packet-path edge highlights ----
   useEffect(() => {
     const r = rendererRef.current;
     if (!r || !settings.animatePacketFlow) {
-      if (activeHitsRef.current.size > 0) {
-        activeHitsRef.current = new Set();
-        rendererRef.current?.updateColors(simNodesRef.current, selectedIdRef.current, activeHitsRef.current);
+      if (activePacketHitsRef.current.size > 0) {
+        activePacketHitsRef.current = new Set();
+        r?.setPacketHits(activePacketHitsRef.current);
       }
       return;
     }
@@ -370,7 +389,7 @@ export function NetworkGraph3DCustom({
       if (pkt.finishedAt < now || pkt.startedAt > now) continue;
       for (const h of pkt.highlightedNodes) next.add(h);
     }
-    const prev = activeHitsRef.current;
+    const prev = activePacketHitsRef.current;
     let changed = next.size !== prev.size;
     if (!changed) {
       for (const h of next) {
@@ -378,8 +397,8 @@ export function NetworkGraph3DCustom({
       }
     }
     if (!changed) return;
-    activeHitsRef.current = next;
-    r.updateColors(simNodesRef.current, selectedIdRef.current, next);
+    activePacketHitsRef.current = next;
+    r.setPacketHits(next);
   }, [inFlightPackets, settings.animatePacketFlow]);
 
   // ---- Orbit mode ----

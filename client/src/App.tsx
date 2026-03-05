@@ -19,14 +19,14 @@ const FOCUS_MODE_KEY = 'meshcore-visualiser-focus-mode';
 
 const DEFAULT_GRAPH_SETTINGS: GraphSettings = {
   minNodeRadius: 9,
-  linkDistance: 120,
+  linkDistance: 150,
   linkStrength: 0.5,
   chargeStrength: -350,
   showLabels: true,
-  threeDLinkOpacity: 0.55,
+  threeDLinkOpacity: 0.25,
   threeDLabelSize: 6,
   orbit: false,
-  geoInfluence: 0.05,
+  geoInfluence: 0.1,
   animatePacketFlow: true,
   packetHighlightDurationMs: 5000,
   packetHighlightMode: 'fixed',
