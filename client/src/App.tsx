@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useMemo } from 'react';
-import { NetworkGraph3D, type GraphSettings } from './components/NetworkGraph3D';
+import { NetworkGraph3DCustom as NetworkGraph3D, type GraphSettings } from './components/NetworkGraph3DCustom';
 import { NodePanel } from './components/NodePanel';
 import { StatsBar } from './components/StatsBar';
 import { PacketLog } from './components/PacketLog';
