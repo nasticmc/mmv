@@ -1,6 +1,5 @@
 import { useState, useEffect, useRef, useMemo } from 'react';
-import { NetworkGraph, type GraphSettings } from './components/NetworkGraph';
-import { NetworkGraph3D } from './components/NetworkGraph3D';
+import { NetworkGraph3D, type GraphSettings } from './components/NetworkGraph3D';
 import { NodePanel } from './components/NodePanel';
 import { StatsBar } from './components/StatsBar';
 import { PacketLog } from './components/PacketLog';
@@ -17,27 +16,20 @@ const API_BASE = isDev ? `http://${window.location.hostname}:3001` : '';
 
 const DEFAULT_GRAPH_SETTINGS: GraphSettings = {
   minNodeRadius: 9,
-  maxNodeRadius: 24,
   linkDistance: 120,
   linkStrength: 0.5,
   chargeStrength: -350,
   showLabels: true,
-  showPacketBadges: true,
-  mode: '3d',
   threeDLinkOpacity: 0.55,
   threeDLabelSize: 6,
   orbit: false,
   geoInfluence: 0.05,
-  showPacketAnimation: true,
-  maxRenderedPackets: 60,
 };
 
 interface ConfigResponse {
   mqttDisplayName: string;
   geoEnabled: boolean;
   geoCenter: { lat: number; lng: number } | null;
-  packetAnimationEnabled: boolean;
-  packetAnimationMax: number;
 }
 
 export default function App() {
@@ -49,7 +41,6 @@ export default function App() {
   const [mqttDisplayName, setMqttDisplayName] = useState('…');
   const [geoEnabled, setGeoEnabled] = useState(true);
   const [geoCenter, setGeoCenter] = useState<{ lat: number; lng: number } | null>(null);
-  const [packetAnimationEnabled, setPacketAnimationEnabled] = useState(true);
   const [focusNodeId, setFocusNodeId] = useState<string | null>(null);
   const [focusKey, setFocusKey] = useState(0);
 
@@ -59,13 +50,7 @@ export default function App() {
       .then((d: ConfigResponse) => {
         setMqttDisplayName(d.mqttDisplayName);
         setGeoEnabled(d.geoEnabled);
-        setPacketAnimationEnabled(d.packetAnimationEnabled);
         if (d.geoCenter) setGeoCenter(d.geoCenter);
-        setGraphSettings((prev) => ({
-          ...prev,
-          showPacketAnimation: d.packetAnimationEnabled,
-          maxRenderedPackets: d.packetAnimationMax,
-        }));
       })
       .catch(() => {});
   }, []);
@@ -90,31 +75,16 @@ export default function App() {
       <StatsBar stats={stats} connected={connected} packetRate={packetRatePerMinute} mqttDisplayName={mqttDisplayName} />
 
       <div className="flex flex-1 min-h-0 relative">
-        {graphSettings.mode === '3d' ? (
-          <NetworkGraph3D
-            nodes={effectiveNodes}
-            edges={edges}
-            selectedId={selectedId}
-            onSelect={handleSelect}
-            settings={graphSettings}
-            focusNodeId={focusNodeId}
-            focusKey={focusKey}
-            geoCenter={geoCenter}
-            recentPackets={recentPackets}
-            packetAnimationEnabled={packetAnimationEnabled}
-          />
-        ) : (
-          <NetworkGraph
-            nodes={effectiveNodes}
-            edges={edges}
-            selectedId={selectedId}
-            onSelect={handleSelect}
-            settings={graphSettings}
-            geoCenter={geoCenter}
-            recentPackets={recentPackets}
-            packetAnimationEnabled={packetAnimationEnabled}
-          />
-        )}
+        <NetworkGraph3D
+          nodes={effectiveNodes}
+          edges={edges}
+          selectedId={selectedId}
+          onSelect={handleSelect}
+          settings={graphSettings}
+          focusNodeId={focusNodeId}
+          focusKey={focusKey}
+          geoCenter={geoCenter}
+        />
 
         <div className="absolute left-3 right-3 top-14 z-30 md:left-1/2 md:right-auto md:top-3 md:w-72 md:-translate-x-1/2">
           <NodeSearch
@@ -141,63 +111,23 @@ export default function App() {
 
           {showVizControls && (
             <div className="mt-2 w-[min(20rem,calc(100vw-1.5rem))] max-h-[calc(100vh-11rem)] overflow-y-auto rounded-lg border border-gray-700 bg-gray-900/95 backdrop-blur p-3 text-xs font-mono space-y-3 shadow-2xl md:w-72 md:max-h-[calc(100vh-8rem)]">
-              <ToggleControl
-                label="3D mode"
-                checked={graphSettings.mode === '3d'}
-                onChange={(checked) => setGraphSettings((s) => ({ ...s, mode: checked ? '3d' : '2d' }))}
-              />
+              <>
+                <div className="text-gray-300 font-semibold">3D controls</div>
+                <RangeControl label={`Node size: ${graphSettings.minNodeRadius}`} min={5} max={18} step={1} value={graphSettings.minNodeRadius} onChange={(v) => setGraphSettings((s) => ({ ...s, minNodeRadius: v }))} />
+                <RangeControl label={`Link distance: ${graphSettings.linkDistance}`} min={60} max={220} step={5} value={graphSettings.linkDistance} onChange={(v) => setGraphSettings((s) => ({ ...s, linkDistance: v }))} />
+                <RangeControl label={`Link strength: ${graphSettings.linkStrength.toFixed(2)}`} min={0.1} max={1} step={0.05} value={graphSettings.linkStrength} onChange={(v) => setGraphSettings((s) => ({ ...s, linkStrength: v }))} />
+                <RangeControl label={`Repulsion: ${Math.round(Math.abs(graphSettings.chargeStrength))}`} min={80} max={800} step={10} value={Math.abs(graphSettings.chargeStrength)} onChange={(v) => setGraphSettings((s) => ({ ...s, chargeStrength: -v }))} />
+                <RangeControl label={`Label size: ${graphSettings.threeDLabelSize}`} min={3} max={12} step={0.5} value={graphSettings.threeDLabelSize} onChange={(v) => setGraphSettings((s) => ({ ...s, threeDLabelSize: v }))} />
+                <RangeControl label={`Link opacity: ${graphSettings.threeDLinkOpacity.toFixed(2)}`} min={0.1} max={1} step={0.05} value={graphSettings.threeDLinkOpacity} onChange={(v) => setGraphSettings((s) => ({ ...s, threeDLinkOpacity: v }))} />
+                <ToggleControl label="Show labels" checked={graphSettings.showLabels} onChange={(checked) => setGraphSettings((s) => ({ ...s, showLabels: checked }))} />
+                <ToggleControl label="Orbit mode" checked={graphSettings.orbit} onChange={(checked) => setGraphSettings((s) => ({ ...s, orbit: checked }))} />
+                {hasGeoNodes && <RangeControl label={`Geo influence: ${graphSettings.geoInfluence.toFixed(2)}`} min={0} max={0.3} step={0.01} value={graphSettings.geoInfluence} onChange={(v) => setGraphSettings((s) => ({ ...s, geoInfluence: v }))} />}
+              </>
 
-              {graphSettings.mode === '3d' ? (
-                <>
-                  <div className="text-gray-300 font-semibold">3D controls</div>
-                  <RangeControl label={`Node size: ${graphSettings.minNodeRadius}`} min={5} max={18} step={1} value={graphSettings.minNodeRadius} onChange={(v) => setGraphSettings((s) => ({ ...s, minNodeRadius: v }))} />
-                  <RangeControl label={`Link distance: ${graphSettings.linkDistance}`} min={60} max={220} step={5} value={graphSettings.linkDistance} onChange={(v) => setGraphSettings((s) => ({ ...s, linkDistance: v }))} />
-                  <RangeControl label={`Link strength: ${graphSettings.linkStrength.toFixed(2)}`} min={0.1} max={1} step={0.05} value={graphSettings.linkStrength} onChange={(v) => setGraphSettings((s) => ({ ...s, linkStrength: v }))} />
-                  <RangeControl label={`Repulsion: ${Math.round(Math.abs(graphSettings.chargeStrength))}`} min={80} max={800} step={10} value={Math.abs(graphSettings.chargeStrength)} onChange={(v) => setGraphSettings((s) => ({ ...s, chargeStrength: -v }))} />
-                  <RangeControl label={`Label size: ${graphSettings.threeDLabelSize.toFixed(1)}`} min={3} max={10} step={0.5} value={graphSettings.threeDLabelSize} onChange={(v) => setGraphSettings((s) => ({ ...s, threeDLabelSize: v }))} />
-                  <RangeControl label={`Link opacity: ${graphSettings.threeDLinkOpacity.toFixed(2)}`} min={0.1} max={1} step={0.05} value={graphSettings.threeDLinkOpacity} onChange={(v) => setGraphSettings((s) => ({ ...s, threeDLinkOpacity: v }))} />
-                  <ToggleControl label="Show labels" checked={graphSettings.showLabels} onChange={(checked) => setGraphSettings((s) => ({ ...s, showLabels: checked }))} />
-                  <ToggleControl label="Orbit mode" checked={graphSettings.orbit} onChange={(checked) => setGraphSettings((s) => ({ ...s, orbit: checked }))} />
-                  {hasGeoNodes && <RangeControl label={`Geo influence: ${graphSettings.geoInfluence.toFixed(2)}`} min={0} max={0.3} step={0.01} value={graphSettings.geoInfluence} onChange={(v) => setGraphSettings((s) => ({ ...s, geoInfluence: v }))} />}
-                </>
-              ) : (
-                <>
-                  <div className="text-gray-300 font-semibold">2D controls</div>
-                  <RangeControl label={`Min radius: ${graphSettings.minNodeRadius}`} min={5} max={18} step={1} value={graphSettings.minNodeRadius} onChange={(v) => setGraphSettings((s) => ({ ...s, minNodeRadius: v }))} />
-                  <RangeControl label={`Max radius: ${graphSettings.maxNodeRadius}`} min={14} max={36} step={1} value={graphSettings.maxNodeRadius} onChange={(v) => setGraphSettings((s) => ({ ...s, maxNodeRadius: Math.max(v, s.minNodeRadius + 2) }))} />
-                  <RangeControl label={`Link distance: ${graphSettings.linkDistance}`} min={60} max={220} step={5} value={graphSettings.linkDistance} onChange={(v) => setGraphSettings((s) => ({ ...s, linkDistance: v }))} />
-                  <RangeControl label={`Link strength: ${graphSettings.linkStrength.toFixed(2)}`} min={0.1} max={1} step={0.05} value={graphSettings.linkStrength} onChange={(v) => setGraphSettings((s) => ({ ...s, linkStrength: v }))} />
-                  <RangeControl label={`Repulsion: ${Math.round(Math.abs(graphSettings.chargeStrength))}`} min={80} max={800} step={10} value={Math.abs(graphSettings.chargeStrength)} onChange={(v) => setGraphSettings((s) => ({ ...s, chargeStrength: -v }))} />
-                  <ToggleControl label="Show labels" checked={graphSettings.showLabels} onChange={(checked) => setGraphSettings((s) => ({ ...s, showLabels: checked }))} />
-                  <ToggleControl label="Show packet badges" checked={graphSettings.showPacketBadges} onChange={(checked) => setGraphSettings((s) => ({ ...s, showPacketBadges: checked }))} />
-                  {hasGeoNodes && <RangeControl label={`Geo influence: ${graphSettings.geoInfluence.toFixed(2)}`} min={0} max={0.3} step={0.01} value={graphSettings.geoInfluence} onChange={(v) => setGraphSettings((s) => ({ ...s, geoInfluence: v }))} />}
-                </>
-              )}
 
-              <div className="border-t border-gray-800 pt-3 space-y-3">
-                <div className="text-gray-300 font-semibold">Packet animation</div>
-                <ToggleControl
-                  label="Enable packet animation"
-                  checked={packetAnimationEnabled && graphSettings.showPacketAnimation}
-                  onChange={(checked) => setGraphSettings((s) => ({ ...s, showPacketAnimation: checked }))}
-                  disabled={!packetAnimationEnabled}
-                />
-                <RangeControl
-                  label={`Max rendered packets: ${graphSettings.maxRenderedPackets}`}
-                  min={10}
-                  max={200}
-                  step={5}
-                  value={graphSettings.maxRenderedPackets}
-                  onChange={(v) => setGraphSettings((s) => ({ ...s, maxRenderedPackets: Math.round(v) }))}
-                  disabled={!packetAnimationEnabled || !graphSettings.showPacketAnimation}
-                />
-                {!packetAnimationEnabled && (
-                  <div className="text-[11px] text-amber-400">Disabled by server config (PACKET_ANIMATION_ENABLED=false).</div>
-                )}
-              </div>
 
               <button
-                onClick={() => setGraphSettings((s) => ({ ...DEFAULT_GRAPH_SETTINGS, showPacketAnimation: packetAnimationEnabled, maxRenderedPackets: s.maxRenderedPackets }))}
+                onClick={() => setGraphSettings(() => ({ ...DEFAULT_GRAPH_SETTINGS }))}
                 className="w-full rounded border border-gray-700 bg-gray-800 px-2 py-1 text-gray-200 hover:bg-gray-700"
               >
                 Reset defaults
@@ -222,7 +152,7 @@ export default function App() {
         )}
       </div>
 
-      <PacketLog packets={recentPackets.slice(0, graphSettings.maxRenderedPackets)} />
+      <PacketLog packets={recentPackets} />
 
       {nodes.length === 0 && (
         <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
