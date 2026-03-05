@@ -138,6 +138,8 @@ export class MeshRenderer {
   private readonly onNodeClick: (id: string | null) => void;
   private readonly raycaster = new THREE.Raycaster();
   private readonly pointer = new THREE.Vector2();
+  /** Start position of a touch — used to distinguish tap from drag/pan. */
+  private touchStartPos: { x: number; y: number } | null = null;
 
   constructor(canvas: HTMLCanvasElement, onNodeClick: (id: string | null) => void) {
     this.canvas = canvas;
@@ -209,6 +211,11 @@ export class MeshRenderer {
     this.scene.add(this.traceMesh);
 
     canvas.addEventListener('click', this.handleClick);
+    // Touch equivalents — OrbitControls consumes touchstart/end for pan/zoom and
+    // may suppress the synthetic click event on some mobile browsers, so we
+    // implement tap detection directly.
+    canvas.addEventListener('touchstart', this.handleTouchStart, { passive: true });
+    canvas.addEventListener('touchend', this.handleTouchEnd);
     this.startLoop();
   }
 
@@ -329,15 +336,38 @@ export class MeshRenderer {
   /**
    * Called when selection changes.
    * Updates per-instance sphere colours and per-vertex edge colours.
+   * When a node is selected:
+   *   - selected node  → yellow
+   *   - direct neighbours → full base colour
+   *   - unconnected nodes → dimmed (25% brightness)
    * Packet-path highlighting is handled separately via setPacketHits().
    */
   updateColors(nodes: SimNode[], selectedId: string | null) {
     this.currentSelectedId = selectedId;
+
+    // Build the set of nodes directly connected to the selected node so we can
+    // dim everything else.  Uses the already-stored edgePairs array — O(edges).
+    const neighborSet = new Set<string>();
+    if (selectedId) {
+      for (const [src, tgt] of this.edgePairs) {
+        if (src === selectedId) neighborSet.add(tgt);
+        if (tgt === selectedId) neighborSet.add(src);
+      }
+    }
+
+    const hasSelection = selectedId !== null;
     for (const node of nodes) {
       const i = this.nodeIndexMap.get(node.id);
       if (i === undefined) continue;
-      const hex = node.id === selectedId ? '#fbbf24' : node.color;
-      _col.set(hex);
+      if (node.id === selectedId) {
+        _col.set('#fbbf24');
+      } else if (hasSelection && !neighborSet.has(node.id)) {
+        // Non-connected node: dim to 25 % of base colour
+        _col.set(node.color);
+        _col.r *= 0.25; _col.g *= 0.25; _col.b *= 0.25;
+      } else {
+        _col.set(node.color);
+      }
       this.nodeMesh.setColorAt(i, _col);
     }
     if (this.nodeMesh.instanceColor) this.nodeMesh.instanceColor.needsUpdate = true;
@@ -427,6 +457,8 @@ export class MeshRenderer {
   dispose() {
     this.stopLoop();
     this.canvas.removeEventListener('click', this.handleClick);
+    this.canvas.removeEventListener('touchstart', this.handleTouchStart);
+    this.canvas.removeEventListener('touchend', this.handleTouchEnd);
     this.controls.dispose();
     this.traceGeo.dispose();
     this.traceMat.dispose();
@@ -510,10 +542,31 @@ export class MeshRenderer {
   }
 
   private readonly handleClick = (e: MouseEvent) => {
+    this.raycastAt(e.clientX, e.clientY);
+  };
+
+  private readonly handleTouchStart = (e: TouchEvent) => {
+    if (e.touches.length !== 1) { this.touchStartPos = null; return; }
+    this.touchStartPos = { x: e.touches[0].clientX, y: e.touches[0].clientY };
+  };
+
+  private readonly handleTouchEnd = (e: TouchEvent) => {
+    if (!this.touchStartPos || e.changedTouches.length !== 1) return;
+    const touch = e.changedTouches[0];
+    const dx = touch.clientX - this.touchStartPos.x;
+    const dy = touch.clientY - this.touchStartPos.y;
+    this.touchStartPos = null;
+    // Only treat as a tap if the finger barely moved (not a pan or zoom gesture)
+    if (Math.abs(dx) > 8 || Math.abs(dy) > 8) return;
+    e.preventDefault(); // prevent the follow-up synthetic click from double-firing
+    this.raycastAt(touch.clientX, touch.clientY);
+  };
+
+  private raycastAt(clientX: number, clientY: number) {
     const rect = this.canvas.getBoundingClientRect();
     this.pointer.set(
-      ((e.clientX - rect.left) / rect.width) * 2 - 1,
-      -((e.clientY - rect.top) / rect.height) * 2 + 1,
+      ((clientX - rect.left) / rect.width) * 2 - 1,
+      -((clientY - rect.top) / rect.height) * 2 + 1,
     );
     this.raycaster.setFromCamera(this.pointer, this.camera);
     const hits = this.raycaster.intersectObject(this.nodeMesh);
@@ -523,7 +576,7 @@ export class MeshRenderer {
     } else {
       this.onNodeClick(null);
     }
-  };
+  }
 
   /** Write current node positions into the edge position buffer. */
   private writeEdgePositions() {

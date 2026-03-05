@@ -120,6 +120,10 @@ export function NetworkGraph3DCustom({
   // Pure packet-count / last_seen updates don't change this and skip the renderer.
   const nodeDisplayFpRef = useRef('');
 
+  // Tracks the composite key (geoInfluence|geoCenter|nodeIdsFp) used at last geo reheat.
+  // Prevents the geo forces effect from reheating the sim on packet-count-only node updates.
+  const geoReheatKeyRef = useRef('');
+
   // The D3 simulation instance, created once per mount.
   const simRef = useRef<Simulation3D<GraphSimNode> | null>(null);
 
@@ -293,6 +297,18 @@ export function NetworkGraph3DCustom({
     const sim = simRef.current;
     if (!sim) return;
     const s = settingsRef.current;
+
+    // Build a composite key so we only reheat when something meaningful changed:
+    // the node set structure, the geo center, or the influence weight.
+    // Packet-count / last_seen updates change `nodes` array ref but not nodeIdsFpRef,
+    // so they must not trigger a reheat (that causes the visible jitter on new data).
+    // Note: the topology effect always runs before this one (defined earlier), so
+    // nodeIdsFpRef.current already reflects the current structural fingerprint.
+    const centerKey = geoCenter ? `${geoCenter.lat},${geoCenter.lng}` : '';
+    const reheatKey = `${s.geoInfluence}|${centerKey}|${nodeIdsFpRef.current}`;
+    const shouldReheat = reheatKey !== geoReheatKeyRef.current;
+    geoReheatKeyRef.current = reheatKey;
+
     if (s.geoInfluence > 0) {
       const geoMap = projectGeo(nodes, 400, geoCenter ?? undefined);
       if (geoMap.size > 0) {
@@ -304,7 +320,9 @@ export function NetworkGraph3DCustom({
           forceY<GraphSimNode>((n) => geoMap.get(n.id)?.y ?? 0)
             .strength((n) => geoMap.has(n.id) ? s.geoInfluence : 0),
         );
-        sim.alpha(Math.max(sim.alpha(), 0.2)).restart();
+        if (shouldReheat) {
+          sim.alpha(Math.max(sim.alpha(), 0.2)).restart();
+        }
         return;
       }
     }

@@ -8,6 +8,12 @@ const MQTT_TOPIC = process.env.MQTT_TOPIC ?? 'meshcore/+/+/packets';
 
 let statsTimer: ReturnType<typeof setInterval> | null = null;
 
+// Track observer hashes already broadcast this session so we don't re-broadcast
+// on every MQTT message (touchObserverNode only updates last_seen; the node's
+// structural/display data doesn't change, so repeated broadcasts are pure noise
+// that cause unnecessary React renders and D3 simulation reheats on the client).
+const seenObserverHashes = new Set<string>();
+
 function prepopulateObserverNodes(): void {
   const configured = (process.env.MQTT_OBSERVERS ?? '')
     .split(',')
@@ -73,7 +79,12 @@ export function startMqtt(): mqtt.MqttClient {
 
     const observerNode = touchObserverNode(observerKey, Date.now());
     if (observerNode) {
-      broadcastNode(observerNode);
+      // Only broadcast if this observer is new this session; repeated broadcasts
+      // for an existing observer just cause unnecessary client-side re-renders.
+      if (!seenObserverHashes.has(observerNode.hash)) {
+        seenObserverHashes.add(observerNode.hash);
+        broadcastNode(observerNode);
+      }
     } else {
       debugLog.warn(`[mqtt] skipping message with invalid observer key: ${observerKey}`);
       return;
