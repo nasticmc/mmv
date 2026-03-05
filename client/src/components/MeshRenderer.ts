@@ -12,6 +12,9 @@
 
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import { LineSegments2 } from 'three/addons/lines/LineSegments2.js';
+import { LineSegmentsGeometry } from 'three/addons/lines/LineSegmentsGeometry.js';
+import { LineMaterial } from 'three/addons/lines/LineMaterial.js';
 
 const MAX_NODES = 2048;
 // 2 vertices per edge × 3 floats; enough for a densely connected graph
@@ -21,11 +24,10 @@ const MAX_EDGE_VERTS = MAX_NODES * 12;
 const _dummy = new THREE.Object3D();
 const _col = new THREE.Color();
 
-// Default/selected/dimmed/packet-hit edge colours as pre-computed RGB components
+// Default/selected/dimmed edge colours as pre-computed RGB components
 const COL_EDGE_DEFAULT = new THREE.Color(0x2563eb);
 const COL_EDGE_SEL     = new THREE.Color(0xfbbf24);
 const COL_EDGE_DIM     = new THREE.Color(0x1e3558);
-const COL_EDGE_PKT     = new THREE.Color(0xffffff); // white — active packet path (max contrast)
 
 export interface SimNode {
   id: string;
@@ -105,6 +107,11 @@ export class MeshRenderer {
   private currentSelectedId: string | null = null;
   /** user-configured opacity, restored when packet hits are cleared */
   private baseEdgeOpacity = 0.55;
+
+  // ---- Packet-trace overlay (thick red Line2) ----
+  private traceGeo: LineSegmentsGeometry;
+  private traceMat: LineMaterial;
+  private traceMesh: LineSegments2;
 
   // ---- Labels (individual Sprites, one per node) ----
   private labelMap = new Map<string, THREE.Sprite>();
@@ -192,6 +199,15 @@ export class MeshRenderer {
     this.edgeMesh.frustumCulled = false;
     this.scene.add(this.edgeMesh);
 
+    // ---- Packet-trace overlay — thick 2 px red lines via Line2 ----
+    this.traceGeo = new LineSegmentsGeometry();
+    this.traceMat = new LineMaterial({ color: 0xef4444, linewidth: 2, transparent: true, opacity: 1.0 });
+    this.traceMat.resolution.set(canvas.clientWidth || 800, canvas.clientHeight || 600);
+    this.traceMesh = new LineSegments2(this.traceGeo, this.traceMat);
+    this.traceMesh.frustumCulled = false;
+    this.traceMesh.visible = false;
+    this.scene.add(this.traceMesh);
+
     canvas.addEventListener('click', this.handleClick);
     this.startLoop();
   }
@@ -204,6 +220,7 @@ export class MeshRenderer {
     this.renderer.setSize(w, h, false);
     this.camera.aspect = w / h;
     this.camera.updateProjectionMatrix();
+    this.traceMat.resolution.set(w, h);
   }
 
   /**
@@ -289,6 +306,7 @@ export class MeshRenderer {
     }
     this.nodeMesh.instanceMatrix.needsUpdate = true;
     this.writeEdgePositions();
+    if (this.traceMesh.visible) this.writeTracePositions();
   }
 
   /**
@@ -334,15 +352,18 @@ export class MeshRenderer {
    */
   setPacketHits(hits: Set<string>) {
     this.packetHitSet = hits;
-    // Boost edge opacity while any trace is active so the white lines are clearly
-    // visible; restore to the user-configured value once all traces expire.
-    this.edgeMaterial.opacity = hits.size > 0 ? Math.max(this.baseEdgeOpacity, 0.85) : this.baseEdgeOpacity;
-    this.writeEdgeColors(this.currentSelectedId);
+    this.writeEdgeColors(this.currentSelectedId);  // dim non-trace edges when active
+    if (hits.size === 0) {
+      this.traceMesh.visible = false;
+      this.edgeMaterial.opacity = this.baseEdgeOpacity;
+      return;
+    }
+    this.edgeMaterial.opacity = Math.min(this.baseEdgeOpacity, 0.15); // dim background edges
+    this.writeTracePositions();
   }
 
   setLinkOpacity(opacity: number) {
     this.baseEdgeOpacity = opacity;
-    // If a packet trace is active keep the boosted opacity; otherwise apply directly.
     if (this.packetHitSet.size === 0) {
       this.edgeMaterial.opacity = opacity;
     }
@@ -407,6 +428,8 @@ export class MeshRenderer {
     this.stopLoop();
     this.canvas.removeEventListener('click', this.handleClick);
     this.controls.dispose();
+    this.traceGeo.dispose();
+    this.traceMat.dispose();
     this.renderer.dispose();
     for (const sprite of this.labelMap.values()) {
       sprite.material.map?.dispose();
@@ -521,20 +544,16 @@ export class MeshRenderer {
   private writeEdgeColors(selectedId: string | null) {
     const buf = this.edgeColBuf;
     const hits = this.packetHitSet;
+    const hasHits = hits.size > 0;
     let i = 0;
     for (const [srcId, tgtId] of this.edgePairs) {
       if (i + 6 > buf.length) break;
       let col: THREE.Color;
       if (selectedId) {
-        if (srcId === selectedId || tgtId === selectedId) {
-          col = COL_EDGE_SEL;  // selection takes priority
-        } else if (hits.size > 0 && hits.has(srcId) && hits.has(tgtId)) {
-          col = COL_EDGE_PKT;  // packet path
-        } else {
-          col = COL_EDGE_DIM;
-        }
-      } else if (hits.size > 0 && hits.has(srcId) && hits.has(tgtId)) {
-        col = COL_EDGE_PKT;    // packet path (no selection)
+        col = (srcId === selectedId || tgtId === selectedId) ? COL_EDGE_SEL : COL_EDGE_DIM;
+      } else if (hasHits) {
+        // Dim non-trace edges so the red overlay stands out; keep trace edges at normal colour.
+        col = (hits.has(srcId) && hits.has(tgtId)) ? COL_EDGE_DEFAULT : COL_EDGE_DIM;
       } else {
         col = COL_EDGE_DEFAULT;
       }
@@ -542,6 +561,24 @@ export class MeshRenderer {
       buf[i++] = col.r; buf[i++] = col.g; buf[i++] = col.b;
     }
     this.edgeColAttr.needsUpdate = true;
+  }
+
+  /** Rebuild the Line2 trace overlay from current nodePos for all packet-hit edges. */
+  private writeTracePositions() {
+    const pts: number[] = [];
+    for (const [srcId, tgtId] of this.edgePairs) {
+      if (!this.packetHitSet.has(srcId) || !this.packetHitSet.has(tgtId)) continue;
+      const sp = this.nodePos.get(srcId);
+      const tp = this.nodePos.get(tgtId);
+      if (!sp || !tp) continue;
+      pts.push(sp.x, sp.y, sp.z, tp.x, tp.y, tp.z);
+    }
+    if (pts.length > 0) {
+      this.traceGeo.setPositions(pts);
+      this.traceMesh.visible = true;
+    } else {
+      this.traceMesh.visible = false;
+    }
   }
 
   /** Add/update/remove label sprites to match the current node set. */
