@@ -105,6 +105,11 @@ export function NetworkGraph3DCustom({
   const simNodesRef = useRef<GraphSimNode[]>([]);
   const simLinksRef = useRef<GraphSimLink[]>([]);
 
+  // Structural fingerprints: only reheat + rebuild topology when these change,
+  // not on every packet-count update that comes through on existing nodes.
+  const nodeIdsFpRef = useRef('');
+  const edgeIdsFpRef = useRef('');
+
   // The D3 simulation instance, created once per mount.
   const simRef = useRef<Simulation3D<GraphSimNode> | null>(null);
 
@@ -208,32 +213,44 @@ export function NetworkGraph3DCustom({
     simNodesRef.current = newSimNodes;
     simLinksRef.current = newSimLinks;
 
-    // Feed updated data into D3 without a full reheat
-    sim.nodes(newSimNodes);
-    (sim.force('link') as ForceLink3D<GraphSimNode, GraphSimLink>).links(newSimLinks);
+    // Compute structural fingerprints (sorted node ids + sorted edge canonical keys).
+    // This is O(n log n) but n is small (<1000) and only runs on node/edge prop changes.
+    const nodeFp = nodes.map(n => n.hash).sort().join(',');
+    const edgeFp = [...linkMap.keys()].sort().join(',');
+    const structureChanged = nodeFp !== nodeIdsFpRef.current || edgeFp !== edgeIdsFpRef.current;
+    nodeIdsFpRef.current = nodeFp;
+    edgeIdsFpRef.current = edgeFp;
 
-    // Degree-weighted charge: hub nodes repel harder than leaf nodes
-    const degreeMap = new Map<string, number>();
-    for (const link of newSimLinks) {
-      const s_ = typeof link.source === 'string' ? link.source : (link.source as GraphSimNode).id;
-      const t_ = typeof link.target === 'string' ? link.target : (link.target as GraphSimNode).id;
-      degreeMap.set(s_, (degreeMap.get(s_) ?? 0) + 1);
-      degreeMap.set(t_, (degreeMap.get(t_) ?? 0) + 1);
+    if (structureChanged) {
+      // Feed updated structure into D3 and reheat gently
+      sim.nodes(newSimNodes);
+      (sim.force('link') as ForceLink3D<GraphSimNode, GraphSimLink>).links(newSimLinks);
+
+      // Degree-weighted charge: hub nodes repel harder than leaf nodes
+      const degreeMap = new Map<string, number>();
+      for (const link of newSimLinks) {
+        const s_ = typeof link.source === 'string' ? link.source : (link.source as GraphSimNode).id;
+        const t_ = typeof link.target === 'string' ? link.target : (link.target as GraphSimNode).id;
+        degreeMap.set(s_, (degreeMap.get(s_) ?? 0) + 1);
+        degreeMap.set(t_, (degreeMap.get(t_) ?? 0) + 1);
+      }
+      const maxDeg = Math.max(1, ...degreeMap.values());
+      const baseCharge = s.chargeStrength;
+      (sim.force('charge') as ReturnType<typeof forceManyBody>).strength(
+        (node: SimNode3D) => {
+          const deg = degreeMap.get((node as GraphSimNode).id) ?? 0;
+          return baseCharge * (1 + 2 * (deg / maxDeg)) / 3;
+        },
+      );
+      sim.alpha(Math.max(sim.alpha(), 0.3)).restart();
+
+      // Full topology rebuild in renderer (new index maps, edge geometry, labels)
+      rendererRef.current?.setTopology(newSimNodes, newSimLinks);
+    } else {
+      // Only metadata changed (packet counts etc.) — update labels/colours, no reheat
+      rendererRef.current?.refreshMetadata(newSimNodes);
     }
-    const maxDeg = Math.max(1, ...degreeMap.values());
-    const baseCharge = s.chargeStrength;
-    (sim.force('charge') as ReturnType<typeof forceManyBody>).strength(
-      (node: SimNode3D) => {
-        const deg = degreeMap.get((node as GraphSimNode).id) ?? 0;
-        return baseCharge * (1 + 2 * (deg / maxDeg)) / 3;
-      },
-    );
 
-    // Gentle reheat — prevents the 30-second throttle needed by react-force-graph-3d
-    sim.alpha(Math.max(sim.alpha(), 0.3)).restart();
-
-    // Tell the renderer about the new topology
-    rendererRef.current?.setTopology(newSimNodes, newSimLinks);
     rendererRef.current?.updateColors(newSimNodes, selectedIdRef.current, activeHitsRef.current);
   }, [nodes, edges]); // eslint-disable-line react-hooks/exhaustive-deps
 

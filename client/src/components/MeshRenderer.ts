@@ -283,6 +283,23 @@ export class MeshRenderer {
   }
 
   /**
+   * Lightweight update for when only node metadata (labels, base colour) changed
+   * but the topology (set of nodes/edges) is unchanged.
+   * Does NOT rebuild index maps or edge geometry — far cheaper than setTopology().
+   */
+  refreshMetadata(nodes: SimNode[]) {
+    for (const node of nodes) {
+      const i = this.nodeIndexMap.get(node.id);
+      if (i === undefined) continue;
+      _col.set(node.color);
+      this.nodeMesh.setColorAt(i, _col);
+      this.nodeRadius.set(node.id, node.radius);
+    }
+    if (this.nodeMesh.instanceColor) this.nodeMesh.instanceColor.needsUpdate = true;
+    this.syncLabels(nodes);
+  }
+
+  /**
    * Called when selection or packet-highlight state changes.
    * Updates per-instance sphere colours and per-vertex edge colours.
    */
