@@ -64,7 +64,6 @@ function canonicalLinkKey(a: string, b: string): string {
 // This prevents the D3 simulation from reheating on every incoming packet,
 // which is especially important on mobile where reheats cause visible jitter.
 const MESH_REFRESH_MS = 30_000;
-const ANIMATION_TICK_MS = 300;
 
 export function NetworkGraph3D({
   nodes, edges, selectedId, onSelect, settings, focusKey, focusNodeId, geoCenter, inFlightPackets = [],
@@ -253,35 +252,6 @@ export function NetworkGraph3D({
   }, [displayData.nodes, settings.geoInfluence, geoCenter]);
 
   useEffect(() => {
-    const applyAnimationFrame = () => {
-      const now = Date.now();
-      const nextNodeHits = new Set<string>();
-
-      for (const packet of inFlightPackets) {
-        if (packet.finishedAt < now || packet.startedAt > now) continue;
-        for (const hash of packet.highlightedNodes) {
-          nextNodeHits.add(hash);
-        }
-      }
-
-      const prevNodeHits = activeNodeHitsRef.current;
-      let changed = nextNodeHits.size !== prevNodeHits.size;
-
-      if (!changed) {
-        for (const hash of nextNodeHits) {
-          if (!prevNodeHits.has(hash)) {
-            changed = true;
-            break;
-          }
-        }
-      }
-
-      if (!changed) return;
-
-      activeNodeHitsRef.current = nextNodeHits;
-      fgRef.current?.refresh();
-    };
-
     if (!settings.animatePacketFlow) {
       if (activeNodeHitsRef.current.size > 0) {
         activeNodeHitsRef.current = new Set();
@@ -290,13 +260,32 @@ export function NetworkGraph3D({
       return;
     }
 
-    applyAnimationFrame();
-    const id = setInterval(() => {
-      if (document.hidden) return;
-      applyAnimationFrame();
-    }, ANIMATION_TICK_MS);
+    const now = Date.now();
+    const nextNodeHits = new Set<string>();
 
-    return () => clearInterval(id);
+    for (const packet of inFlightPackets) {
+      if (packet.finishedAt < now || packet.startedAt > now) continue;
+      for (const hash of packet.highlightedNodes) {
+        nextNodeHits.add(hash);
+      }
+    }
+
+    const prevNodeHits = activeNodeHitsRef.current;
+    let changed = nextNodeHits.size !== prevNodeHits.size;
+
+    if (!changed) {
+      for (const hash of nextNodeHits) {
+        if (!prevNodeHits.has(hash)) {
+          changed = true;
+          break;
+        }
+      }
+    }
+
+    if (!changed) return;
+
+    activeNodeHitsRef.current = nextNodeHits;
+    fgRef.current?.refresh();
   }, [inFlightPackets, settings.animatePacketFlow]);
 
   // Fly camera to a focused node when focusKey changes.

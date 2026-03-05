@@ -40,11 +40,22 @@ export default function App() {
   const [panelOpen, setPanelOpen] = useState(false);
   const [showVizControls, setShowVizControls] = useState(false);
   const [graphSettings, setGraphSettings] = useState<GraphSettings>(DEFAULT_GRAPH_SETTINGS);
+
+  const isLikelyMobile = useMemo(
+    () => window.matchMedia('(pointer: coarse)').matches || window.innerWidth < 900,
+    [],
+  );
   const packetFlowSettings = useMemo(() => ({
     enabled: graphSettings.animatePacketFlow,
     highlightDurationMs: graphSettings.packetHighlightDurationMs,
     highlightMode: graphSettings.packetHighlightMode,
-  }), [graphSettings.animatePacketFlow, graphSettings.packetHighlightDurationMs, graphSettings.packetHighlightMode]);
+    maxInFlightPackets: isLikelyMobile ? 24 : 80,
+  }), [
+    graphSettings.animatePacketFlow,
+    graphSettings.packetHighlightDurationMs,
+    graphSettings.packetHighlightMode,
+    isLikelyMobile,
+  ]);
 
   const { nodes, edges, stats, recentPackets, inFlightPackets, packetRatePerMinute, connected } = useWebSocket(WS_URL, packetFlowSettings);
   const [mqttDisplayName, setMqttDisplayName] = useState('…');

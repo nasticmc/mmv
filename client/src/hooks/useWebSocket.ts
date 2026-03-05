@@ -10,6 +10,7 @@ interface PacketFlowSettings {
   enabled: boolean;
   highlightDurationMs: number;
   highlightMode: 'fixed' | 'packetDuration';
+  maxInFlightPackets: number;
 }
 
 interface UseWebSocketResult {
@@ -31,7 +32,6 @@ const DEFAULT_STATS: StatsData = {
   namedNodeCount: 0,
 };
 
-const MAX_IN_FLIGHT_PACKETS = 120;
 const DEFAULT_HOP_DURATION_MS = 300;
 
 function mergeNode(nodes: NodeData[], incoming: NodeData): NodeData[] {
@@ -165,7 +165,7 @@ export function useWebSocket(url: string, packetFlowSettings: PacketFlowSettings
           if (inFlight) {
             setInFlightPackets((prev) => {
               const live = prev.filter((p) => p.finishedAt >= now);
-              return [inFlight, ...live].slice(0, MAX_IN_FLIGHT_PACKETS);
+              return [inFlight, ...live].slice(0, packetFlowSettings.maxInFlightPackets);
             });
           } else {
             setInFlightPackets((prev) => prev.filter((p) => p.finishedAt >= now));
@@ -199,16 +199,18 @@ export function useWebSocket(url: string, packetFlowSettings: PacketFlowSettings
   }, [connect]);
 
   useEffect(() => {
+    if (inFlightPackets.length === 0) return;
+
     const prune = setInterval(() => {
       const now = Date.now();
       setInFlightPackets((prev) => {
         const live = prev.filter((p) => p.finishedAt >= now);
         return live.length === prev.length ? prev : live;
       });
-    }, 500);
+    }, 1500);
 
     return () => clearInterval(prune);
-  }, []);
+  }, [inFlightPackets.length]);
 
   return {
     nodes: graph.nodes,
