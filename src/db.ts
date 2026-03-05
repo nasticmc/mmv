@@ -109,6 +109,12 @@ const upsertObserverNode = db.prepare(`
     packet_count = packet_count + 1
 `);
 
+const markTransitNodeAsRepeater = db.prepare(`
+  UPDATE nodes
+  SET device_role = CASE WHEN is_observer = 1 THEN device_role ELSE 2 END
+  WHERE hash = ?
+`);
+
 const updateNodeFromAdvert = db.prepare(`
   UPDATE nodes SET name = ?, device_role = ?, public_key = ?
   WHERE hash = ?
@@ -118,14 +124,31 @@ const upsertNodeWithKey = db.prepare(`
   INSERT INTO nodes (hash, public_key, name, device_role, first_seen, last_seen, packet_count, is_observer)
   VALUES (?, ?, ?, ?, ?, ?, 1, 0)
   ON CONFLICT(hash) DO UPDATE SET
-    public_key   = COALESCE(excluded.public_key, public_key),
-    name         = COALESCE(excluded.name, name),
-    device_role  = CASE WHEN excluded.device_role != 0 THEN excluded.device_role ELSE device_role END,
+    public_key   = CASE
+      WHEN device_role = 2 AND excluded.device_role = 1 THEN public_key
+      ELSE COALESCE(excluded.public_key, public_key)
+    END,
+    name         = CASE
+      WHEN device_role = 2 AND excluded.device_role = 1 THEN name
+      ELSE COALESCE(excluded.name, name)
+    END,
+    device_role  = CASE
+      WHEN device_role = 2 AND excluded.device_role = 1 THEN device_role
+      WHEN excluded.device_role != 0 THEN excluded.device_role
+      ELSE device_role
+    END,
     last_seen    = excluded.last_seen,
     packet_count = packet_count + 1
   ON CONFLICT(public_key) DO UPDATE SET
-    name         = COALESCE(excluded.name, name),
-    device_role  = CASE WHEN excluded.device_role != 0 THEN excluded.device_role ELSE device_role END,
+    name         = CASE
+      WHEN device_role = 2 AND excluded.device_role = 1 THEN name
+      ELSE COALESCE(excluded.name, name)
+    END,
+    device_role  = CASE
+      WHEN device_role = 2 AND excluded.device_role = 1 THEN device_role
+      WHEN excluded.device_role != 0 THEN excluded.device_role
+      ELSE device_role
+    END,
     last_seen    = excluded.last_seen,
     packet_count = packet_count + 1
 `);
@@ -169,6 +192,12 @@ export function touchObserverNode(observerKey: string, now: number): NodeRow | n
   return getNode.get(hash) as unknown as NodeRow;
 }
 
+export function markNodeAsTransitRepeater(hash: string): NodeRow | null {
+  const normalizedHash = hash.toLowerCase();
+  markTransitNodeAsRepeater.run(normalizedHash);
+  return (getNode.get(normalizedHash) as unknown as NodeRow | undefined) ?? null;
+}
+
 export function touchEdge(fromHash: string, toHash: string, now: number): EdgeRow {
   const from = fromHash.toLowerCase();
   const to = toHash.toLowerCase();
@@ -182,13 +211,16 @@ export function applyAdvert(
   deviceRole: number,
   timestamp: number | null,
   now: number,
-  location?: { latitude: number; longitude: number }
+  location?: { latitude: number; longitude: number },
+  options?: { enrichNode?: boolean }
 ): string {
   // The 1-byte path hash = first byte of the public key
   const hash = hashFromKeyPrefix(publicKey);
   if (!hash) throw new Error('Invalid advert public key: unable to derive 1-byte hash prefix');
 
-  upsertNodeWithKey.run(hash, publicKey, name, deviceRole, now, now);
+  if (options?.enrichNode !== false) {
+    upsertNodeWithKey.run(hash, publicKey, name, deviceRole, now, now);
+  }
   insertAdvert.run(publicKey, name, deviceRole, timestamp, now);
 
   if (location) {

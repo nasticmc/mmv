@@ -2,7 +2,7 @@ import { useMemo, useRef, useState, useEffect, useCallback } from 'react';
 import ForceGraph3D from 'react-force-graph-3d';
 import SpriteText from 'three-spritetext';
 import * as d3 from 'd3';
-import type { EdgeData, NodeData } from '../types';
+import type { EdgeData, InFlightPacket, NodeData } from '../types';
 import { ROLE_COLORS } from '../types';
 import { projectGeo } from '../lib/geo';
 
@@ -17,6 +17,7 @@ export interface GraphSettings {
   threeDLabelSize: number;
   orbit: boolean;
   geoInfluence: number;
+  animatePacketFlow: boolean;
 }
 
 interface Props {
@@ -29,6 +30,7 @@ interface Props {
   focusKey?: number;
   focusNodeId?: string | null;
   geoCenter?: { lat: number; lng: number } | null;
+  inFlightPackets?: InFlightPacket[];
 }
 
 interface GraphNode extends NodeData {
@@ -52,13 +54,18 @@ function linkEndId(end: string | number | GraphNode | object): string {
   return String(end);
 }
 
+function canonicalLinkKey(a: string, b: string): string {
+  return [a, b].sort().join('<>');
+}
+
 // How long (ms) to wait between pushing graph topology updates to the renderer.
 // This prevents the D3 simulation from reheating on every incoming packet,
 // which is especially important on mobile where reheats cause visible jitter.
 const MESH_REFRESH_MS = 30_000;
+const ANIMATION_TICK_MS = 120;
 
 export function NetworkGraph3D({
-  nodes, edges, selectedId, onSelect, settings, focusKey, focusNodeId, geoCenter,
+  nodes, edges, selectedId, onSelect, settings, focusKey, focusNodeId, geoCenter, inFlightPackets = [],
 }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   const fgRef = useRef<any>(null);
@@ -72,6 +79,8 @@ export function NetworkGraph3D({
   const selectedIdRef = useRef(selectedId);
   const settingsRef = useRef(settings);
   settingsRef.current = settings;
+  const activeLinksRef = useRef(new Map<string, number>());
+  const activeNodeHitsRef = useRef(new Set<string>());
 
   // Orbit animation state
   const orbitRafRef = useRef<number | null>(null);
@@ -131,7 +140,7 @@ export function NetworkGraph3D({
     // Deduplicate bidirectional edges: if A→B and B→A both exist, render one link.
     for (const edge of edges) {
       if (!nodeSet.has(edge.from_hash) || !nodeSet.has(edge.to_hash)) continue;
-      const canonical = [edge.from_hash, edge.to_hash].sort().join('<>');
+      const canonical = canonicalLinkKey(edge.from_hash, edge.to_hash);
       if (nextLinkMap.has(canonical)) continue;
       const existing = linkMapRef.current.get(canonical);
       nextLinkMap.set(canonical, existing ?? { source: edge.from_hash, target: edge.to_hash });
@@ -242,6 +251,70 @@ export function NetworkGraph3D({
     fg.d3Force('geoY', null);
   }, [displayData.nodes, settings.geoInfluence, geoCenter]);
 
+  useEffect(() => {
+    const applyAnimationFrame = () => {
+      const now = Date.now();
+      const nextLinks = new Map<string, number>();
+      const nextNodeHits = new Set<string>();
+
+      for (const packet of inFlightPackets) {
+        if (packet.finishedAt < now) continue;
+        for (const hop of packet.hops) {
+          if (hop.startMs <= now && hop.endMs >= now) {
+            const key = canonicalLinkKey(hop.from, hop.to);
+            nextLinks.set(key, (nextLinks.get(key) ?? 0) + 1);
+            nextNodeHits.add(hop.to);
+          }
+        }
+      }
+
+      const prevLinks = activeLinksRef.current;
+      const prevNodeHits = activeNodeHitsRef.current;
+      let changed = nextLinks.size !== prevLinks.size || nextNodeHits.size !== prevNodeHits.size;
+
+      if (!changed) {
+        for (const [key, count] of nextLinks) {
+          if (prevLinks.get(key) !== count) {
+            changed = true;
+            break;
+          }
+        }
+      }
+
+      if (!changed) {
+        for (const hash of nextNodeHits) {
+          if (!prevNodeHits.has(hash)) {
+            changed = true;
+            break;
+          }
+        }
+      }
+
+      if (!changed) return;
+
+      activeLinksRef.current = nextLinks;
+      activeNodeHitsRef.current = nextNodeHits;
+      fgRef.current?.refresh();
+    };
+
+    if (!settings.animatePacketFlow) {
+      if (activeLinksRef.current.size > 0 || activeNodeHitsRef.current.size > 0) {
+        activeLinksRef.current = new Map();
+        activeNodeHitsRef.current = new Set();
+        fgRef.current?.refresh();
+      }
+      return;
+    }
+
+    applyAnimationFrame();
+    const id = setInterval(() => {
+      if (document.hidden) return;
+      applyAnimationFrame();
+    }, ANIMATION_TICK_MS);
+
+    return () => clearInterval(id);
+  }, [inFlightPackets, settings.animatePacketFlow]);
+
   // Fly camera to a focused node when focusKey changes.
   useEffect(() => {
     if (!focusNodeId || !focusKey) return;
@@ -272,7 +345,11 @@ export function NetworkGraph3D({
   // ---------------------------------------------------------------------------
   const nodeColorCb = useCallback((node: object) => {
     const graphNode = node as GraphNode;
-    return graphNode.hash === selectedIdRef.current ? '#fbbf24' : graphNode.color;
+    if (graphNode.hash === selectedIdRef.current) return '#fbbf24';
+    if (activeNodeHitsRef.current.has(graphNode.hash)) {
+      return graphNode.is_observer ? '#67e8f9' : '#fef08a';
+    }
+    return graphNode.color;
   }, []);
 
   const nodeThreeObjectCb = useCallback((node: object) => {
@@ -305,10 +382,13 @@ export function NetworkGraph3D({
   }, []);
 
   const linkColorCb = useCallback((link: object) => {
-    const sel = selectedIdRef.current;
-    if (!sel) return '#2563eb';
     const s = linkEndId((link as GraphLink).source);
     const t = linkEndId((link as GraphLink).target);
+    const isActive = settingsRef.current.animatePacketFlow && activeLinksRef.current.has(canonicalLinkKey(s, t));
+    if (isActive) return '#93c5fd';
+
+    const sel = selectedIdRef.current;
+    if (!sel) return '#2563eb';
     return s === sel || t === sel ? '#fbbf24' : '#1e3558';
   }, []);
 
@@ -377,6 +457,16 @@ export function NetworkGraph3D({
     };
   }, [settings.orbit]);
 
+  const linkDirectionalParticlesCb = useCallback((link: object) => {
+    if (!settingsRef.current.animatePacketFlow) return 0;
+    const s = linkEndId((link as GraphLink).source);
+    const t = linkEndId((link as GraphLink).target);
+    const active = activeLinksRef.current.get(canonicalLinkKey(s, t)) ?? 0;
+    return active > 0 ? Math.min(6, active) : 0;
+  }, []);
+
+  const linkDirectionalParticleColorCb = useCallback(() => '#f8fafc', []);
+
   return (
     <div ref={containerRef} className="flex-1 relative overflow-hidden" style={{ minHeight: 0 }}>
       {size.width > 0 && size.height > 0 && (
@@ -395,6 +485,10 @@ export function NetworkGraph3D({
           linkWidth={linkWidthCb}
           linkColor={linkColorCb}
           linkOpacity={settings.threeDLinkOpacity}
+          linkDirectionalParticles={linkDirectionalParticlesCb}
+          linkDirectionalParticleWidth={2.5}
+          linkDirectionalParticleSpeed={0.008}
+          linkDirectionalParticleColor={linkDirectionalParticleColorCb}
           onNodeClick={(node) => {
             // Always select the clicked node. If it was already selected the
             // parent will re-open the panel rather than deselecting.

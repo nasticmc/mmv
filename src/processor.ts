@@ -1,7 +1,7 @@
 import { MeshCorePacketDecoder } from '@michaelhart/meshcore-decoder';
 import { PayloadType } from '@michaelhart/meshcore-decoder';
 import type { AdvertPayload } from '@michaelhart/meshcore-decoder';
-import { touchNode, touchEdge, applyAdvert, type NodeRow, type EdgeRow } from './db.js';
+import { touchNode, touchEdge, applyAdvert, markNodeAsTransitRepeater, type NodeRow, type EdgeRow } from './db.js';
 import { hashFromKeyPrefix } from './hash-utils.js';
 
 export interface ProcessResult {
@@ -19,6 +19,8 @@ function buildBroadcastPath(path: string[], observerKey: string | undefined): st
   if (path[path.length - 1] === observerHash) return path;
   return [...path, observerHash];
 }
+
+const DEVICE_ROLE_CHAT_NODE = 1;
 
 const PAYLOAD_TYPE_NAMES: Record<number, string> = {
   0: 'Request',
@@ -52,8 +54,15 @@ function applyPathAndObserver(path: string[], observerKey: string | undefined, n
   const updatedNodes: NodeRow[] = [];
   const updatedEdges: EdgeRow[] = [];
 
-  for (const pathHash of path) {
-    const node = touchNode(pathHash, now);
+  for (let i = 0; i < path.length; i++) {
+    const pathHash = path[i];
+    let node = touchNode(pathHash, now);
+
+    const isIntermediate = i > 0 && i < path.length - 1;
+    if (isIntermediate) {
+      node = markNodeAsTransitRepeater(pathHash) ?? node;
+    }
+
     updatedNodes.push(node);
   }
 
@@ -71,6 +80,14 @@ function applyPathAndObserver(path: string[], observerKey: string | undefined, n
 
     if (path.length > 0) {
       const lastHop = path[path.length - 1];
+      if (path.length > 1) {
+        const repeaterHop = markNodeAsTransitRepeater(lastHop);
+        if (repeaterHop) {
+          const idx = updatedNodes.findIndex((n) => n.hash === repeaterHop.hash);
+          if (idx >= 0) updatedNodes[idx] = repeaterHop;
+        }
+      }
+
       if (lastHop !== observerHash) {
         const edge = touchEdge(lastHop, observerHash, now);
         if (!updatedEdges.some((e) => e.from_hash === edge.from_hash && e.to_hash === edge.to_hash)) {
@@ -129,20 +146,40 @@ export function processPacket(hex: string, observerKey?: string): ProcessResult 
   if (packet.payloadType === (PayloadType.Advert as number) && packet.payload.decoded) {
     const advert = packet.payload.decoded as AdvertPayload;
     if (advert.isValid && advert.publicKey) {
+      const advertRole = advert.appData.deviceRole as number;
+      const observerHash = observerKey ? hashFromKeyPrefix(observerKey) : null;
+      const transitHashes = new Set(path.slice(1, -1));
+      if (observerHash && path.length > 1) {
+        transitHashes.add(path[path.length - 1]);
+      }
+
+      const advertHashCandidate = hashFromKeyPrefix(advert.publicKey);
+      const shouldEnrichNode = !(
+        advertHashCandidate
+        && transitHashes.has(advertHashCandidate)
+        && advertRole === DEVICE_ROLE_CHAT_NODE
+      );
+
       const advertHash = applyAdvert(
         advert.publicKey,
         advert.appData.name ?? null,
-        advert.appData.deviceRole as number,
+        advertRole,
         advert.timestamp ?? null,
         now,
         advert.appData.hasLocation && advert.appData.location
           ? advert.appData.location
-          : undefined
+          : undefined,
+        { enrichNode: shouldEnrichNode }
       );
 
       const node = touchNode(advertHash, now);
+      const normalizedAdvertHash = advertHash.toLowerCase();
+      const resolvedNode = transitHashes.has(normalizedAdvertHash)
+        ? (markNodeAsTransitRepeater(normalizedAdvertHash) ?? node)
+        : node;
+
       if (!updatedNodes.some((n) => n.hash === advertHash)) {
-        updatedNodes.push(node);
+        updatedNodes.push(resolvedNode);
       }
 
       if (path.length > 0 && advertHash !== path[0]) {
