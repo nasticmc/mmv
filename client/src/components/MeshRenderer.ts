@@ -26,7 +26,7 @@ const _col = new THREE.Color();
 
 // Default/selected/dimmed edge colours as pre-computed RGB components
 const COL_EDGE_DEFAULT = new THREE.Color(0x2563eb);
-const COL_EDGE_SEL     = new THREE.Color(0xfbbf24);
+const COL_EDGE_SEL     = new THREE.Color(0x22c55e);
 const COL_EDGE_DIM     = new THREE.Color(0x1e3558);
 
 export interface SimNode {
@@ -112,6 +112,11 @@ export class MeshRenderer {
   private traceGeo: LineSegmentsGeometry;
   private traceMat: LineMaterial;
   private traceMesh: LineSegments2;
+
+  // ---- Selected-node neighbour edge overlay (thick green Line2) ----
+  private selEdgeGeo: LineSegmentsGeometry;
+  private selEdgeMat: LineMaterial;
+  private selEdgeMesh: LineSegments2;
 
   // ---- Labels (individual Sprites, one per node) ----
   private labelMap = new Map<string, THREE.Sprite>();
@@ -201,14 +206,23 @@ export class MeshRenderer {
     this.edgeMesh.frustumCulled = false;
     this.scene.add(this.edgeMesh);
 
-    // ---- Packet-trace overlay — thick 2 px red lines via Line2 ----
+    // ---- Packet-trace overlay — thick 4 px red lines via Line2 ----
     this.traceGeo = new LineSegmentsGeometry();
-    this.traceMat = new LineMaterial({ color: 0xef4444, linewidth: 2, transparent: true, opacity: 1.0 });
+    this.traceMat = new LineMaterial({ color: 0xef4444, linewidth: 4, transparent: true, opacity: 1.0 });
     this.traceMat.resolution.set(canvas.clientWidth || 800, canvas.clientHeight || 600);
     this.traceMesh = new LineSegments2(this.traceGeo, this.traceMat);
     this.traceMesh.frustumCulled = false;
     this.traceMesh.visible = false;
     this.scene.add(this.traceMesh);
+
+    // ---- Selected-node neighbour edge overlay — thick 3 px green lines via Line2 ----
+    this.selEdgeGeo = new LineSegmentsGeometry();
+    this.selEdgeMat = new LineMaterial({ color: 0x22c55e, linewidth: 3, transparent: true, opacity: 0.9 });
+    this.selEdgeMat.resolution.set(canvas.clientWidth || 800, canvas.clientHeight || 600);
+    this.selEdgeMesh = new LineSegments2(this.selEdgeGeo, this.selEdgeMat);
+    this.selEdgeMesh.frustumCulled = false;
+    this.selEdgeMesh.visible = false;
+    this.scene.add(this.selEdgeMesh);
 
     canvas.addEventListener('click', this.handleClick);
     // Touch equivalents — OrbitControls consumes touchstart/end for pan/zoom and
@@ -228,6 +242,7 @@ export class MeshRenderer {
     this.camera.aspect = w / h;
     this.camera.updateProjectionMatrix();
     this.traceMat.resolution.set(w, h);
+    this.selEdgeMat.resolution.set(w, h);
   }
 
   /**
@@ -314,6 +329,7 @@ export class MeshRenderer {
     this.nodeMesh.instanceMatrix.needsUpdate = true;
     this.writeEdgePositions();
     if (this.traceMesh.visible) this.writeTracePositions();
+    if (this.selEdgeMesh.visible) this.writeSelEdgePositions();
   }
 
   /**
@@ -337,8 +353,8 @@ export class MeshRenderer {
    * Called when selection changes.
    * Updates per-instance sphere colours and per-vertex edge colours.
    * When a node is selected:
-   *   - selected node  → yellow
-   *   - direct neighbours → full base colour
+   *   - selected node  → green
+   *   - direct neighbours → brightened (150% base colour) + 3 px green edge overlay
    *   - unconnected nodes → dimmed (25% brightness)
    * Packet-path highlighting is handled separately via setPacketHits().
    */
@@ -360,8 +376,14 @@ export class MeshRenderer {
       const i = this.nodeIndexMap.get(node.id);
       if (i === undefined) continue;
       if (node.id === selectedId) {
-        _col.set('#fbbf24');
-      } else if (hasSelection && !neighborSet.has(node.id)) {
+        _col.set('#22c55e');
+      } else if (hasSelection && neighborSet.has(node.id)) {
+        // Direct neighbour: brighten to 150 % of base colour
+        _col.set(node.color);
+        _col.r = Math.min(1, _col.r * 1.5);
+        _col.g = Math.min(1, _col.g * 1.5);
+        _col.b = Math.min(1, _col.b * 1.5);
+      } else if (hasSelection) {
         // Non-connected node: dim to 25 % of base colour
         _col.set(node.color);
         _col.r *= 0.25; _col.g *= 0.25; _col.b *= 0.25;
@@ -373,6 +395,7 @@ export class MeshRenderer {
     if (this.nodeMesh.instanceColor) this.nodeMesh.instanceColor.needsUpdate = true;
 
     this.writeEdgeColors(selectedId);
+    this.writeSelEdgePositions();
   }
 
   /**
@@ -462,6 +485,8 @@ export class MeshRenderer {
     this.controls.dispose();
     this.traceGeo.dispose();
     this.traceMat.dispose();
+    this.selEdgeGeo.dispose();
+    this.selEdgeMat.dispose();
     this.renderer.dispose();
     for (const sprite of this.labelMap.values()) {
       sprite.material.map?.dispose();
@@ -614,6 +639,29 @@ export class MeshRenderer {
       buf[i++] = col.r; buf[i++] = col.g; buf[i++] = col.b;
     }
     this.edgeColAttr.needsUpdate = true;
+  }
+
+  /** Rebuild the Line2 neighbour-edge overlay for the currently selected node. */
+  private writeSelEdgePositions() {
+    const selectedId = this.currentSelectedId;
+    if (!selectedId) {
+      this.selEdgeMesh.visible = false;
+      return;
+    }
+    const pts: number[] = [];
+    for (const [srcId, tgtId] of this.edgePairs) {
+      if (srcId !== selectedId && tgtId !== selectedId) continue;
+      const sp = this.nodePos.get(srcId);
+      const tp = this.nodePos.get(tgtId);
+      if (!sp || !tp) continue;
+      pts.push(sp.x, sp.y, sp.z, tp.x, tp.y, tp.z);
+    }
+    if (pts.length > 0) {
+      this.selEdgeGeo.setPositions(pts);
+      this.selEdgeMesh.visible = true;
+    } else {
+      this.selEdgeMesh.visible = false;
+    }
   }
 
   /** Rebuild the Line2 trace overlay from current nodePos for all packet-hit edges. */
