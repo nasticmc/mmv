@@ -141,19 +141,7 @@ export default function App() {
     setPanelOpen(hash !== null && !isMobileViewport);
   };
 
-  const applyPacketPreset = (preset: 'responsive' | 'balanced' | 'battery') => {
-    setGraphSettings((prev) => {
-      if (preset === 'responsive') {
-        return { ...prev, packetObservationWindowMs: 50 };
-      }
-      if (preset === 'battery') {
-        return { ...prev, packetObservationWindowMs: 800, showLabels: false };
-      }
-      return { ...prev, packetObservationWindowMs: 300 };
-    });
-  };
-
-  const renderGraph = () => (
+const renderGraph = () => (
     <>
       <NetworkGraph3D
         nodes={effectiveNodes}
@@ -223,21 +211,6 @@ export default function App() {
 
               <div className="pt-2 border-t border-gray-800 text-gray-300 font-semibold">Packet animation</div>
               <ToggleControl label="Animate packet flow" checked={graphSettings.animatePacketFlow} onChange={(checked) => setGraphSettings((s) => ({ ...s, animatePacketFlow: checked }))} />
-              <div className="text-[11px] leading-snug text-gray-500">Shorter batch windows feel faster but cost more CPU. Longer windows smooth bursts and reduce mobile jank.</div>
-              <div className="flex gap-2">
-                <button className="flex-1 rounded border border-gray-700 bg-gray-800 px-2 py-1 text-gray-200 hover:bg-gray-700" onClick={() => applyPacketPreset('responsive')}>Responsive</button>
-                <button className="flex-1 rounded border border-gray-700 bg-gray-800 px-2 py-1 text-gray-200 hover:bg-gray-700" onClick={() => applyPacketPreset('balanced')}>Balanced</button>
-                <button className="flex-1 rounded border border-gray-700 bg-gray-800 px-2 py-1 text-gray-200 hover:bg-gray-700" onClick={() => applyPacketPreset('battery')}>Battery</button>
-              </div>
-              <RangeControl
-                label={`Packet batch window (ms): ${graphSettings.packetObservationWindowMs}`}
-                min={0}
-                max={1200}
-                step={50}
-                value={graphSettings.packetObservationWindowMs}
-                onChange={(v) => setGraphSettings((s) => ({ ...s, packetObservationWindowMs: v }))}
-                disabled={!graphSettings.animatePacketFlow}
-              />
 
               <button
                 onClick={() => setGraphSettings(() => ({ ...DEFAULT_GRAPH_SETTINGS }))}
@@ -332,7 +305,7 @@ function NodeSearch({ nodes, onSelect }: NodeSearchProps) {
     const q = query.toLowerCase().trim();
     if (!q) return [];
     return nodes
-      .filter((n) => n.name?.toLowerCase().startsWith(q) || n.hash.toLowerCase().startsWith(q))
+      .filter((n) => n.name?.toLowerCase().includes(q) || n.hash.toLowerCase().includes(q))
       .slice(0, 6);
   }, [query, nodes]);
 
