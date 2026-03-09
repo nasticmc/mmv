@@ -6,6 +6,7 @@ import {
   touchEdge,
   applyAdvert,
   markNodeAsTransitRepeater,
+  getNodeRow,
   type NodeRow,
   type EdgeRow,
 } from './db.js';
@@ -24,10 +25,6 @@ function buildBroadcastPath(pathNodeIds: string[], observerHash: string | null):
   if (!observerHash) return pathNodeIds;
   if (pathNodeIds[pathNodeIds.length - 1] === observerHash) return pathNodeIds;
   return [...pathNodeIds, observerHash];
-}
-
-function getPathNodeIds(path: string[]): string[] {
-  return path;
 }
 
 const DEVICE_ROLE_CHAT_NODE = 1;
@@ -139,9 +136,8 @@ export function processPacket(hex: string, observerKey?: string): ProcessResult 
     .filter((h): h is string => h !== null);
 
   const observerHash = observerKey ? hashFromKeyPrefix(observerKey) : null;
-  const pathNodeIds = getPathNodeIds(path);
-  const { nodes: updatedNodes, edges: updatedEdges, seenNodes, seenEdges } = applyPathAndObserver(path, pathNodeIds, observerHash, now);
-  const broadcastPath = buildBroadcastPath(pathNodeIds, observerHash);
+  const { nodes: updatedNodes, edges: updatedEdges, seenNodes, seenEdges } = applyPathAndObserver(path, path, observerHash, now);
+  const broadcastPath = buildBroadcastPath(path, observerHash);
 
   if (packet.payloadType === (PayloadType.Advert as number) && packet.payload.decoded) {
     const advert = packet.payload.decoded as AdvertPayload;
@@ -171,19 +167,23 @@ export function processPacket(hex: string, observerKey?: string): ProcessResult 
         { enrichNode: shouldEnrichNode }
       );
 
-      const node = touchNode(advertHash, now, advertHash);
-      const normalizedAdvertHash = advertHash.toLowerCase();
-      const resolvedNode = transitHashes.has(normalizedAdvertHash)
-        ? (markNodeAsTransitRepeater(normalizedAdvertHash) ?? node)
-        : node;
+      // Read the node row without incrementing packet_count again — applyAdvert
+      // already performed the upsert (and path processing may have touched it too).
+      const node = getNodeRow(advertHash);
+      if (node) {
+        const normalizedAdvertHash = advertHash.toLowerCase();
+        const resolvedNode = transitHashes.has(normalizedAdvertHash)
+          ? (markNodeAsTransitRepeater(normalizedAdvertHash) ?? node)
+          : node;
 
-      if (!seenNodes.has(advertHash)) {
-        updatedNodes.push(resolvedNode);
-        seenNodes.add(advertHash);
+        if (!seenNodes.has(advertHash)) {
+          updatedNodes.push(resolvedNode);
+          seenNodes.add(advertHash);
+        }
       }
 
-      if (pathNodeIds.length > 0 && advertHash !== pathNodeIds[0]) {
-        const advertEdge = touchEdge(advertHash, pathNodeIds[0], now);
+      if (path.length > 0 && advertHash !== path[0]) {
+        const advertEdge = touchEdge(advertHash, path[0], now);
         const edgeKey = `${advertEdge.from_hash}>${advertEdge.to_hash}`;
         if (!seenEdges.has(edgeKey)) {
           seenEdges.add(edgeKey);
