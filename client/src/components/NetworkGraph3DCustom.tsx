@@ -41,8 +41,6 @@ export interface GraphSettings {
   geoInfluence: number;
   animatePacketFlow: boolean;
   packetHighlightDurationMs: number;
-  packetHighlightMode: 'fixed' | 'packetDuration';
-  packetObservationWindowMs: number;
 }
 
 interface Props {
@@ -397,26 +395,33 @@ export function NetworkGraph3DCustom({
     if (!r || !settings.animatePacketFlow) {
       if (activePacketHitsRef.current.size > 0) {
         activePacketHitsRef.current = new Set();
-        r?.setPacketHits(activePacketHitsRef.current);
+        r?.setPacketHits(activePacketHitsRef.current, new Set());
       }
       return;
     }
     const now = Date.now();
-    const next = new Set<string>();
+    const nextNodes = new Set<string>();
+    const nextEdges = new Set<string>();
     for (const pkt of inFlightPackets) {
       if (pkt.finishedAt < now || pkt.startedAt > now) continue;
-      for (const h of pkt.highlightedNodes) next.add(h);
+      for (const h of pkt.highlightedNodes) nextNodes.add(h);
+      for (const [from, to] of pkt.highlightedEdges) {
+        nextEdges.add(canonicalKey(from, to));
+      }
     }
     const prev = activePacketHitsRef.current;
-    let changed = next.size !== prev.size;
+    let changed = nextNodes.size !== prev.size;
     if (!changed) {
-      for (const h of next) {
+      for (const h of nextNodes) {
         if (!prev.has(h)) { changed = true; break; }
       }
     }
-    if (!changed) return;
-    activePacketHitsRef.current = next;
-    r.setPacketHits(next);
+    if (!changed) {
+      r.setPacketHits(nextNodes, nextEdges);
+      return;
+    }
+    activePacketHitsRef.current = nextNodes;
+    r.setPacketHits(nextNodes, nextEdges);
   }, [inFlightPackets, settings.animatePacketFlow]);
 
   // ---- Orbit mode ----
