@@ -21,7 +21,6 @@ interface UseWebSocketResult {
   packetRatePerMinute: number;
   debugLogs: DebugLogEntry[];
   connected: boolean;
-  mqttStatus: 'unknown' | 'connected' | 'disconnected';
 }
 
 const DEFAULT_STATS: StatsData = {
@@ -110,7 +109,6 @@ export function useWebSocket(url: string, packetFlowSettings: PacketFlowSettings
   // always reads current values without needing to reconnect on every settings change.
   const packetFlowSettingsRef = useRef(packetFlowSettings);
   packetFlowSettingsRef.current = packetFlowSettings;
-
 
   const queueInFlightPacket = useCallback((packet: InFlightPacket) => {
     const now = Date.now();
@@ -247,6 +245,5 @@ export function useWebSocket(url: string, packetFlowSettings: PacketFlowSettings
     packetRatePerMinute,
     debugLogs,
     connected,
-    mqttStatus: 'unknown',
   };
 }

@@ -76,6 +76,7 @@ Edit `.env` as needed (MQTT broker and auth).
 | `GEO_ENABLED` | `true` | Set to `false` to disable geographic layout influence entirely |
 | `CENTER_LAT` | _(unset)_ | Fixed latitude for geo projection centre (defaults to node centroid) |
 | `CENTER_LON` | _(unset)_ | Fixed longitude for geo projection centre (defaults to node centroid) |
+| `PATH_HASH_BYTES` | `1` | Bytes used for deriving node ID from public key (1, 2, or 3) |
 | `VITE_PORT` | `9001` | Vite dev server port (client only) |
 
 ## Development

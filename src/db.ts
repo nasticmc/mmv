@@ -227,6 +227,11 @@ const deleteTransientNodes = db.prepare('DELETE FROM nodes WHERE hash LIKE ?');
 const countTransientNodesForHop = db.prepare('SELECT COUNT(*) AS c FROM nodes WHERE hash LIKE ?');
 const selectEdgesForNode = db.prepare('SELECT * FROM edges WHERE from_hash = ? OR to_hash = ?');
 
+export function getNodeRow(hash: string): NodeRow | null {
+  const normalizedHash = hash.toLowerCase();
+  return (getNode.get(normalizedHash) as unknown as NodeRow | undefined) ?? null;
+}
+
 export function touchNode(hash: string, now: number, hopHash?: string): NodeRow {
   const normalizedHash = hash.toLowerCase();
   const normalizedHopHash = (hopHash ?? normalizedHash).toLowerCase();
@@ -358,11 +363,13 @@ export function getStats(): {
   return { nodeCount, edgeCount, advertCount, namedNodeCount };
 }
 
-// Suppress the ExperimentalWarning for node:sqlite in production
+// Suppress the ExperimentalWarning for node:sqlite by replacing the default
+// warning handler with a filter. Runs at module init before other code
+// registers listeners. Non-SQLite warnings are still emitted to stderr.
 if (process.env.NODE_ENV !== 'test') {
   process.removeAllListeners('warning');
   process.on('warning', (w) => {
     if (w.name === 'ExperimentalWarning' && w.message.includes('SQLite')) return;
-    process.stderr.write(`${w.name}: ${w.message}\n`);
+    console.warn(`${w.name}: ${w.message}`);
   });
 }

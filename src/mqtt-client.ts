@@ -74,7 +74,6 @@ export function startMqtt(): mqtt.MqttClient {
       return;
     }
 
-    const streamType = parts[3];
     const observerKey = parts[2];
 
     const observerNode = touchObserverNode(observerKey, Date.now());
@@ -90,32 +89,24 @@ export function startMqtt(): mqtt.MqttClient {
       return;
     }
 
-    let result = null;
-    let duration: number | null = null;
-
-    if (streamType === 'packets') {
-      let envelope: Record<string, unknown>;
-      try {
-        envelope = JSON.parse(payload.toString('utf-8')) as Record<string, unknown>;
-      } catch {
-        debugLog.warn(`[mqtt] failed to parse JSON from ${topic}`);
-        return;
-      }
-
-      const raw = envelope.raw;
-      if (typeof raw !== 'string' || raw.length < 4) {
-        debugLog.warn(`[mqtt] missing or invalid "raw" field in packet envelope`);
-        return;
-      }
-
-      result = processPacket(raw, observerKey);
-      const durationRaw = envelope.duration;
-      duration = typeof durationRaw === 'string' ? Number(durationRaw) : (typeof durationRaw === 'number' ? durationRaw : null);
-      if (duration !== null && !Number.isFinite(duration)) duration = null;
-    } else {
-      debugLog.info(`[mqtt] skipping unsupported stream: ${topic}`);
+    let envelope: Record<string, unknown>;
+    try {
+      envelope = JSON.parse(payload.toString('utf-8')) as Record<string, unknown>;
+    } catch {
+      debugLog.warn(`[mqtt] failed to parse JSON from ${topic}`);
       return;
     }
+
+    const raw = envelope.raw;
+    if (typeof raw !== 'string' || raw.length < 4) {
+      debugLog.warn(`[mqtt] missing or invalid "raw" field in packet envelope`);
+      return;
+    }
+
+    const result = processPacket(raw, observerKey);
+    const durationRaw = envelope.duration;
+    let duration = typeof durationRaw === 'string' ? Number(durationRaw) : (typeof durationRaw === 'number' ? durationRaw : null);
+    if (duration !== null && !Number.isFinite(duration)) duration = null;
 
     if (!result) return;
 
