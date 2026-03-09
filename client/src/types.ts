@@ -44,6 +44,7 @@ export interface InFlightPacket {
   packetType: string;
   hash: string;
   highlightedNodes: string[];
+  highlightedEdges: Array<[string, string]>;
   startedAt: number;
   finishedAt: number;
 }

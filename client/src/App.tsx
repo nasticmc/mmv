@@ -29,8 +29,6 @@ const DEFAULT_GRAPH_SETTINGS: GraphSettings = {
   geoInfluence: 0.1,
   animatePacketFlow: true,
   packetHighlightDurationMs: 5000,
-  packetHighlightMode: 'fixed',
-  packetObservationWindowMs: 300,
 };
 
 interface ConfigResponse {
@@ -75,14 +73,10 @@ export default function App() {
   const packetFlowSettings = useMemo(() => ({
     enabled: graphSettings.animatePacketFlow,
     highlightDurationMs: graphSettings.packetHighlightDurationMs,
-    highlightMode: graphSettings.packetHighlightMode,
-    observationWindowMs: graphSettings.packetObservationWindowMs,
     maxInFlightPackets: isLikelyMobile ? 24 : 80,
   }), [
     graphSettings.animatePacketFlow,
     graphSettings.packetHighlightDurationMs,
-    graphSettings.packetHighlightMode,
-    graphSettings.packetObservationWindowMs,
     isLikelyMobile,
   ]);
 
@@ -147,17 +141,7 @@ export default function App() {
     setPanelOpen(hash !== null && !isMobileViewport);
   };
 
-  const applyPacketPreset = (preset: 'responsive' | 'balanced' | 'battery') => {
-    setGraphSettings((prev) => {
-      if (preset === 'responsive') {
-        return { ...prev, packetObservationWindowMs: 50, packetHighlightDurationMs: 2500, packetHighlightMode: 'fixed' };
-      }
-      if (preset === 'battery') {
-        return { ...prev, packetObservationWindowMs: 800, packetHighlightDurationMs: 7000, packetHighlightMode: 'fixed', showLabels: false };
-      }
-      return { ...prev, packetObservationWindowMs: 300, packetHighlightDurationMs: 5000 };
-    });
-  };
+
 
   const renderGraph = () => (
     <>
@@ -229,12 +213,6 @@ export default function App() {
 
               <div className="pt-2 border-t border-gray-800 text-gray-300 font-semibold">Packet animation</div>
               <ToggleControl label="Animate packet flow" checked={graphSettings.animatePacketFlow} onChange={(checked) => setGraphSettings((s) => ({ ...s, animatePacketFlow: checked }))} />
-              <div className="text-[11px] leading-snug text-gray-500">Shorter batch windows feel faster but cost more CPU. Longer windows smooth bursts and reduce mobile jank.</div>
-              <div className="flex gap-2">
-                <button className="flex-1 rounded border border-gray-700 bg-gray-800 px-2 py-1 text-gray-200 hover:bg-gray-700" onClick={() => applyPacketPreset('responsive')}>Responsive</button>
-                <button className="flex-1 rounded border border-gray-700 bg-gray-800 px-2 py-1 text-gray-200 hover:bg-gray-700" onClick={() => applyPacketPreset('balanced')}>Balanced</button>
-                <button className="flex-1 rounded border border-gray-700 bg-gray-800 px-2 py-1 text-gray-200 hover:bg-gray-700" onClick={() => applyPacketPreset('battery')}>Battery</button>
-              </div>
               <RangeControl
                 label={`Packet highlight (ms): ${graphSettings.packetHighlightDurationMs}`}
                 min={500}
@@ -242,25 +220,6 @@ export default function App() {
                 step={100}
                 value={graphSettings.packetHighlightDurationMs}
                 onChange={(v) => setGraphSettings((s) => ({ ...s, packetHighlightDurationMs: v }))}
-                disabled={!graphSettings.animatePacketFlow || graphSettings.packetHighlightMode === 'packetDuration'}
-              />
-              <SelectControl
-                label="Packet highlight timing"
-                value={graphSettings.packetHighlightMode}
-                onChange={(value) => setGraphSettings((s) => ({ ...s, packetHighlightMode: value }))}
-                options={[
-                  { value: 'fixed', label: 'Fixed duration' },
-                  { value: 'packetDuration', label: 'Use packet duration' },
-                ]}
-                disabled={!graphSettings.animatePacketFlow}
-              />
-              <RangeControl
-                label={`Packet batch window (ms): ${graphSettings.packetObservationWindowMs}`}
-                min={0}
-                max={1200}
-                step={50}
-                value={graphSettings.packetObservationWindowMs}
-                onChange={(v) => setGraphSettings((s) => ({ ...s, packetObservationWindowMs: v }))}
                 disabled={!graphSettings.animatePacketFlow}
               />
 
@@ -357,7 +316,7 @@ function NodeSearch({ nodes, onSelect }: NodeSearchProps) {
     const q = query.toLowerCase().trim();
     if (!q) return [];
     return nodes
-      .filter((n) => n.name?.toLowerCase().startsWith(q) || n.hash.toLowerCase().startsWith(q))
+      .filter((n) => n.name?.toLowerCase().includes(q) || n.hash.toLowerCase().includes(q))
       .slice(0, 6);
   }, [query, nodes]);
 
@@ -375,7 +334,7 @@ function NodeSearch({ nodes, onSelect }: NodeSearchProps) {
     <div ref={wrapRef} className="relative">
       <input
         type="text"
-        placeholder="Search nodes by name or prefix…"
+        placeholder="Search nodes by name or hash…"
         value={query}
         onChange={(e) => { setQuery(e.target.value); setOpen(true); }}
         onFocus={() => setOpen(true)}
@@ -454,31 +413,3 @@ function ToggleControl({ label, checked, onChange, disabled = false }: ToggleCon
   );
 }
 
-
-interface SelectControlProps {
-  label: string;
-  value: 'fixed' | 'packetDuration';
-  onChange: (value: 'fixed' | 'packetDuration') => void;
-  options: Array<{ value: 'fixed' | 'packetDuration'; label: string }>;
-  disabled?: boolean;
-}
-
-function SelectControl({ label, value, onChange, options, disabled = false }: SelectControlProps) {
-  return (
-    <label className={`block space-y-1 ${disabled ? 'opacity-50' : ''}`}>
-      <div className="text-gray-300">{label}</div>
-      <select
-        className="w-full rounded border border-gray-700 bg-gray-800 px-2 py-1 text-xs text-gray-100"
-        value={value}
-        disabled={disabled}
-        onChange={(e) => onChange(e.target.value as 'fixed' | 'packetDuration')}
-      >
-        {options.map((option) => (
-          <option key={option.value} value={option.value}>
-            {option.label}
-          </option>
-        ))}
-      </select>
-    </label>
-  );
-}
