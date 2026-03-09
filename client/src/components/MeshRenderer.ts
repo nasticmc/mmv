@@ -282,6 +282,10 @@ export class MeshRenderer {
     this.nodeMesh.instanceMatrix.needsUpdate = true;
     if (this.nodeMesh.instanceColor) this.nodeMesh.instanceColor.needsUpdate = true;
 
+    // Invalidate the bounding sphere so the raycaster recomputes it from the
+    // new instance positions on the next click.
+    this.nodeMesh.boundingSphere = null;
+
     // ---- Edges ----
     this.edgePairs = links.map(l => [linkEndId(l.source), linkEndId(l.target)]);
     this.writeEdgePositions();
@@ -314,6 +318,8 @@ export class MeshRenderer {
       if (sprite) sprite.position.set(x, y + node.radius + 5, z);
     }
     this.nodeMesh.instanceMatrix.needsUpdate = true;
+    // Invalidate so raycaster recomputes from current positions on next click
+    this.nodeMesh.boundingSphere = null;
     this.writeEdgePositions();
     if (this.traceMesh.visible) this.writeTracePositions();
   }
