@@ -6,8 +6,6 @@ import {
   touchEdge,
   applyAdvert,
   markNodeAsTransitRepeater,
-  getResolvedNodeForHop,
-  mergeTransientNodesForHop,
   type NodeRow,
   type EdgeRow,
 } from './db.js';
@@ -28,27 +26,8 @@ function buildBroadcastPath(pathNodeIds: string[], observerHash: string | null):
   return [...pathNodeIds, observerHash];
 }
 
-function buildTransientNodeId(pathHash: string, previousHop: string | null, nextHop: string | null, observerHash: string | null): string {
-  return `${pathHash}@${previousHop ?? 'src'}>${nextHop ?? 'dst'}>${observerHash ?? 'none'}`;
-}
-
-function resolvePathNodeId(path: string[], index: number, observerHash: string | null): string {
-  const hop = path[index];
-  const isIntermediate = index > 0 && index < path.length - 1;
-  const isObserverAdjacentRelay = Boolean(observerHash) && path.length > 1 && index === path.length - 1;
-
-  if (!isIntermediate && !isObserverAdjacentRelay) return hop;
-
-  const resolved = getResolvedNodeForHop(hop);
-  if (resolved) return resolved.hash;
-
-  const previousHop = index > 0 ? path[index - 1] : null;
-  const nextHop = index + 1 < path.length ? path[index + 1] : observerHash;
-  return buildTransientNodeId(hop, previousHop, nextHop, observerHash);
-}
-
-function getPathNodeIds(path: string[], observerHash: string | null): string[] {
-  return path.map((_, index) => resolvePathNodeId(path, index, observerHash));
+function getPathNodeIds(path: string[]): string[] {
+  return path;
 }
 
 const DEVICE_ROLE_CHAT_NODE = 1;
@@ -160,7 +139,7 @@ export function processPacket(hex: string, observerKey?: string): ProcessResult 
     .filter((h): h is string => h !== null);
 
   const observerHash = observerKey ? hashFromKeyPrefix(observerKey) : null;
-  const pathNodeIds = getPathNodeIds(path, observerHash);
+  const pathNodeIds = getPathNodeIds(path);
   const { nodes: updatedNodes, edges: updatedEdges, seenNodes, seenEdges } = applyPathAndObserver(path, pathNodeIds, observerHash, now);
   const broadcastPath = buildBroadcastPath(pathNodeIds, observerHash);
 
@@ -192,7 +171,6 @@ export function processPacket(hex: string, observerKey?: string): ProcessResult 
         { enrichNode: shouldEnrichNode }
       );
 
-      const mergeResult = mergeTransientNodesForHop(advertHash, now);
       const node = touchNode(advertHash, now, advertHash);
       const normalizedAdvertHash = advertHash.toLowerCase();
       const resolvedNode = transitHashes.has(normalizedAdvertHash)
@@ -202,21 +180,6 @@ export function processPacket(hex: string, observerKey?: string): ProcessResult 
       if (!seenNodes.has(advertHash)) {
         updatedNodes.push(resolvedNode);
         seenNodes.add(advertHash);
-      }
-
-      if (mergeResult) {
-        if (!seenNodes.has(mergeResult.node.hash)) {
-          updatedNodes.push(mergeResult.node);
-          seenNodes.add(mergeResult.node.hash);
-        }
-
-        for (const mergedEdge of mergeResult.edges) {
-          const edgeKey = `${mergedEdge.from_hash}>${mergedEdge.to_hash}`;
-          if (!seenEdges.has(edgeKey)) {
-            seenEdges.add(edgeKey);
-            updatedEdges.push(mergedEdge);
-          }
-        }
       }
 
       if (pathNodeIds.length > 0 && advertHash !== pathNodeIds[0]) {
