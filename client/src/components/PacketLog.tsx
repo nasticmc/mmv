@@ -40,6 +40,15 @@ export function PacketLog({ packets, fullHeight = false }: Props) {
           {p.pathLen > 0 && (
             <span className="text-gray-600 shrink-0">{p.pathLen} hop{p.pathLen !== 1 ? 's' : ''}</span>
           )}
+          {p.rssi !== null && (
+            <span className="text-amber-400 shrink-0">{p.rssi} dBm</span>
+          )}
+          {p.snr !== null && (
+            <span className="text-lime-400 shrink-0">SNR {p.snr} dB</span>
+          )}
+          {p.score !== null && (
+            <span className="text-sky-400 shrink-0">score {p.score}</span>
+          )}
           {p.observerHash && (
             <span className="text-cyan-400 shrink-0">obs:{p.observerHash.toUpperCase()}</span>
           )}

@@ -392,7 +392,7 @@ export function NetworkGraph3DCustom({
   // ---- Packet-path edge highlights ----
   useEffect(() => {
     const r = rendererRef.current;
-    if (!r || !settings.animatePacketFlow) {
+    if (!r || !settings.animatePacketFlow || selectedId) {
       if (activePacketHitsRef.current.size > 0) {
         activePacketHitsRef.current = new Set();
         r?.setPacketHits(activePacketHitsRef.current, new Set());
@@ -422,7 +422,7 @@ export function NetworkGraph3DCustom({
     }
     activePacketHitsRef.current = nextNodes;
     r.setPacketHits(nextNodes, nextEdges);
-  }, [inFlightPackets, settings.animatePacketFlow]);
+  }, [inFlightPackets, settings.animatePacketFlow, selectedId]);
 
   // ---- Orbit mode ----
   useEffect(() => {
