@@ -8,7 +8,7 @@ export type WsMessage =
   | { type: 'node'; node: NodeRow }
   | { type: 'edge'; edge: EdgeRow }
   | { type: 'stats'; stats: ReturnType<typeof getStats> }
-  | { type: 'packet'; packetType: string; hash: string; pathLen: number; path: string[]; duration: number | null; observerHash: string | null }
+  | { type: 'packet'; packetType: string; hash: string; pathLen: number; path: string[]; duration: number | null; observerHash: string | null; snr: number | null; rssi: number | null; score: number | null; direction: string | null }
   | { type: 'debug'; level: 'info' | 'warn' | 'error'; message: string; ts: number };
 
 let wss: WebSocketServer | null = null;
@@ -52,8 +52,8 @@ export function broadcastStats(): void {
   broadcast({ type: 'stats', stats: getStats() });
 }
 
-export function broadcastPacket(packetType: string, hash: string, pathLen: number, path: string[], duration: number | null, observerHash: string | null): void {
-  broadcast({ type: 'packet', packetType, hash, pathLen, path, duration, observerHash });
+export function broadcastPacket(packetType: string, hash: string, pathLen: number, path: string[], duration: number | null, observerHash: string | null, snr: number | null = null, rssi: number | null = null, score: number | null = null, direction: string | null = null): void {
+  broadcast({ type: 'packet', packetType, hash, pathLen, path, duration, observerHash, snr, rssi, score, direction });
 }
 
 export function broadcastDebug(level: 'info' | 'warn' | 'error', message: string): void {

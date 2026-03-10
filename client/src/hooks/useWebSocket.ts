@@ -179,6 +179,10 @@ export function useWebSocket(url: string, packetFlowSettings: PacketFlowSettings
               path: msg.path,
               duration: msg.duration,
               observerHash: msg.observerHash,
+              snr: msg.snr,
+              rssi: msg.rssi,
+              score: msg.score,
+              direction: msg.direction,
               receivedAt: now,
             };
             return [entry, ...prev].slice(0, 50);

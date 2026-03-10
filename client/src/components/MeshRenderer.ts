@@ -629,6 +629,7 @@ export class MeshRenderer {
     this.edgeColAttr.needsUpdate = true;
 
     if (selectedId) {
+      this.traceMat.color.set(0x22c55e);
       this.traceMat.linewidth = 3;
       const selectedPts: number[] = [];
       for (const [srcId, tgtId] of this.edgePairs) {
@@ -647,6 +648,7 @@ export class MeshRenderer {
       return;
     }
 
+    this.traceMat.color.set(0xef4444);
     this.traceMat.linewidth = 4;
     if (hasHits) {
       this.writeTracePositions();

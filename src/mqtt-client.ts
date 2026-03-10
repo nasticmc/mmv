@@ -108,13 +108,28 @@ export function startMqtt(): mqtt.MqttClient {
     let duration = typeof durationRaw === 'string' ? Number(durationRaw) : (typeof durationRaw === 'number' ? durationRaw : null);
     if (duration !== null && !Number.isFinite(duration)) duration = null;
 
+    // Optional radio metrics from mctomqtt
+    const snrRaw = envelope.SNR ?? envelope.snr;
+    let snr = typeof snrRaw === 'string' ? Number(snrRaw) : (typeof snrRaw === 'number' ? snrRaw : null);
+    if (snr !== null && !Number.isFinite(snr)) snr = null;
+
+    const rssiRaw = envelope.RSSI ?? envelope.rssi;
+    let rssi = typeof rssiRaw === 'string' ? Number(rssiRaw) : (typeof rssiRaw === 'number' ? rssiRaw : null);
+    if (rssi !== null && !Number.isFinite(rssi)) rssi = null;
+
+    const scoreRaw = envelope.score;
+    let score = typeof scoreRaw === 'string' ? Number(scoreRaw) : (typeof scoreRaw === 'number' ? scoreRaw : null);
+    if (score !== null && !Number.isFinite(score)) score = null;
+
+    const direction = typeof envelope.direction === 'string' ? envelope.direction : null;
+
     if (!result) return;
 
     for (const node of result.nodes) broadcastNode(node);
     for (const edge of result.edges) {
       if (edge.packet_count >= MIN_EDGE_PACKETS) broadcastEdge(edge);
     }
-    broadcastPacket(result.packetType, result.hash, result.path.length, result.path, duration, result.observerHash);
+    broadcastPacket(result.packetType, result.hash, result.path.length, result.path, duration, result.observerHash, snr, rssi, score, direction);
   });
 
   statsTimer = setInterval(() => {
