@@ -19,6 +19,7 @@ import { LineMaterial } from 'three/addons/lines/LineMaterial.js';
 const MAX_NODES = 2048;
 // 2 vertices per edge × 3 floats; enough for a densely connected graph
 const MAX_EDGE_VERTS = MAX_NODES * 12;
+const MAX_PARTICLES = 2048;
 
 // Module-level temporaries to avoid per-call allocations
 const _dummy = new THREE.Object3D();
@@ -28,6 +29,29 @@ const _col = new THREE.Color();
 const COL_EDGE_DEFAULT = new THREE.Color(0x2563eb);
 const COL_EDGE_SEL     = new THREE.Color(0x22c55e);
 const COL_EDGE_DIM     = new THREE.Color(0x1e3558);
+
+// Particle animation constants (inspired by Remote Terminal for MeshCore)
+const PARTICLE_SPEED = 0.008;
+
+/** Packet-type → particle colour.  Matches the MeshCore palette. */
+const PACKET_TYPE_COLORS: Record<string, number> = {
+  'AD':  0xf59e0b,   // amber  – advertisements
+  'GT':  0x06b6d4,   // cyan   – group text
+  'DM':  0xa855f7,   // purple – direct messages
+  'ACK': 0x22c55e,   // green  – acks
+  'TR':  0xf97316,   // orange – trace
+  'REQ': 0xec4899,   // pink   – requests
+  'RES': 0x14b8a6,   // teal   – responses
+};
+const DEFAULT_PARTICLE_COLOR = 0xef4444; // red fallback
+
+interface Particle {
+  fromNodeId: string;
+  toNodeId: string;
+  progress: number;
+  speed: number;
+  color: THREE.Color;
+}
 
 export interface SimNode {
   id: string;
@@ -110,10 +134,21 @@ export class MeshRenderer {
   /** user-configured opacity, restored when packet hits are cleared */
   private baseEdgeOpacity = 0.55;
 
-  // ---- Packet-trace overlay (thick red Line2) ----
+  // ---- Packet-trace overlay (thick Line2 for selection highlight) ----
   private traceGeo: LineSegmentsGeometry;
   private traceMat: LineMaterial;
   private traceMesh: LineSegments2;
+
+  // ---- Animated particles (travel along edges per packet) ----
+  private particles: Particle[] = [];
+  private particlePosBuf: Float32Array;
+  private particlePosAttr: THREE.BufferAttribute;
+  private particleColBuf: Float32Array;
+  private particleColAttr: THREE.BufferAttribute;
+  private particlePoints: THREE.Points;
+  private particleMaterial: THREE.PointsMaterial;
+  /** Track whether particles were active last frame to detect transitions */
+  private hadParticles = false;
 
   // ---- Labels (individual Sprites, one per node) ----
   private labelMap = new Map<string, THREE.Sprite>();
@@ -203,14 +238,42 @@ export class MeshRenderer {
     this.edgeMesh.frustumCulled = false;
     this.scene.add(this.edgeMesh);
 
-    // ---- Packet-trace overlay — thick red lines via Line2 ----
+    // ---- Packet-trace overlay — thick lines via Line2 (used for selection highlight) ----
     this.traceGeo = new LineSegmentsGeometry();
-    this.traceMat = new LineMaterial({ color: 0xef4444, linewidth: 4, transparent: true, opacity: 1.0 });
+    this.traceMat = new LineMaterial({ color: 0x22c55e, linewidth: 3, transparent: true, opacity: 1.0 });
     this.traceMat.resolution.set(canvas.clientWidth || 800, canvas.clientHeight || 600);
     this.traceMesh = new LineSegments2(this.traceGeo, this.traceMat);
     this.traceMesh.frustumCulled = false;
     this.traceMesh.visible = false;
     this.scene.add(this.traceMesh);
+
+    // ---- Animated particles ----
+    this.particlePosBuf = new Float32Array(MAX_PARTICLES * 3);
+    this.particlePosAttr = new THREE.BufferAttribute(this.particlePosBuf, 3);
+    this.particlePosAttr.setUsage(THREE.DynamicDrawUsage);
+
+    this.particleColBuf = new Float32Array(MAX_PARTICLES * 3);
+    this.particleColAttr = new THREE.BufferAttribute(this.particleColBuf, 3);
+    this.particleColAttr.setUsage(THREE.DynamicDrawUsage);
+
+    const particleGeo = new THREE.BufferGeometry();
+    particleGeo.setAttribute('position', this.particlePosAttr);
+    particleGeo.setAttribute('color', this.particleColAttr);
+    particleGeo.setDrawRange(0, 0);
+
+    this.particleMaterial = new THREE.PointsMaterial({
+      size: 20,
+      map: MeshRenderer.createParticleTexture(),
+      vertexColors: true,
+      sizeAttenuation: true,
+      transparent: true,
+      opacity: 0.9,
+      depthWrite: false,
+    });
+    this.particlePoints = new THREE.Points(particleGeo, this.particleMaterial);
+    this.particlePoints.visible = false;
+    this.particlePoints.frustumCulled = false;
+    this.scene.add(this.particlePoints);
 
     canvas.addEventListener('click', this.handleClick);
     // Touch equivalents — OrbitControls consumes touchstart/end for pan/zoom and
@@ -321,7 +384,7 @@ export class MeshRenderer {
     // Invalidate so raycaster recomputes from current positions on next click
     this.nodeMesh.boundingSphere = null;
     this.writeEdgePositions();
-    if (this.traceMesh.visible) this.writeTracePositions();
+    if (this.traceMesh.visible) this.writeSelectionTracePositions();
   }
 
   /**
@@ -390,23 +453,52 @@ export class MeshRenderer {
    * Update the set of node ids that are on an active packet path.
    * Any edge whose both endpoints are in the set is drawn with the packet-hit colour.
    * Pass an empty set to clear all packet-path highlights.
+   *
+   * NOTE: With the particle system, this is no longer used for packet animation.
+   * Kept for compatibility and potential future use.
    */
   setPacketHits(hits: Set<string>, hitEdges: Set<string>) {
     this.packetHitSet = hits;
     this.packetHitEdgeSet = hitEdges;
-    this.writeEdgeColors(this.currentSelectedId);  // dim non-trace edges when active
+    this.writeEdgeColors(this.currentSelectedId);
     if (hits.size === 0 || hitEdges.size === 0) {
-      this.traceMesh.visible = false;
-      this.edgeMaterial.opacity = this.baseEdgeOpacity;
+      if (this.particles.length === 0) {
+        this.traceMesh.visible = false;
+        this.edgeMaterial.opacity = this.baseEdgeOpacity;
+      }
       return;
     }
-    this.edgeMaterial.opacity = Math.min(this.baseEdgeOpacity, 0.15); // dim background edges
-    this.writeTracePositions();
+    this.edgeMaterial.opacity = Math.min(this.baseEdgeOpacity, 0.15);
+  }
+
+  /**
+   * Spawn animated particles that travel along the given edge path.
+   * Each hop gets a particle with staggered start (negative progress) so
+   * they cascade through the path like a snake — matching the Remote Terminal style.
+   */
+  addParticles(edges: Array<[string, string]>, packetType: string) {
+    const colorHex = PACKET_TYPE_COLORS[packetType] ?? DEFAULT_PARTICLE_COLOR;
+    const color = new THREE.Color(colorHex);
+    for (let i = 0; i < edges.length; i++) {
+      if (this.particles.length >= MAX_PARTICLES) break;
+      this.particles.push({
+        fromNodeId: edges[i][0],
+        toNodeId: edges[i][1],
+        progress: -i,         // staggered: each hop starts one unit later
+        speed: PARTICLE_SPEED,
+        color: color.clone(),
+      });
+    }
+  }
+
+  /** Remove all in-flight particles (e.g. when animation is toggled off). */
+  clearParticles() {
+    this.particles.length = 0;
   }
 
   setLinkOpacity(opacity: number) {
     this.baseEdgeOpacity = opacity;
-    if (this.packetHitSet.size === 0) {
+    if (this.packetHitSet.size === 0 && this.particles.length === 0) {
       this.edgeMaterial.opacity = opacity;
     }
   }
@@ -474,6 +566,9 @@ export class MeshRenderer {
     this.controls.dispose();
     this.traceGeo.dispose();
     this.traceMat.dispose();
+    this.particlePoints.geometry.dispose();
+    this.particleMaterial.map?.dispose();
+    this.particleMaterial.dispose();
     this.renderer.dispose();
     for (const sprite of this.labelMap.values()) {
       sprite.material.map?.dispose();
@@ -518,6 +613,7 @@ export class MeshRenderer {
       this.doOrbit();
     }
 
+    this.updateParticles();
     this.controls.update();
     this.renderer.render(this.scene, this.camera);
   }
@@ -590,6 +686,80 @@ export class MeshRenderer {
     }
   }
 
+  /** Advance particles, interpolate positions, cull expired ones. Called every frame. */
+  private updateParticles() {
+    const particles = this.particles;
+
+    // Advance progress and compact: remove particles that have finished (progress > 1)
+    let writeIdx = 0;
+    for (let i = 0; i < particles.length; i++) {
+      particles[i].progress += particles[i].speed;
+      if (particles[i].progress <= 1) {
+        particles[writeIdx++] = particles[i];
+      }
+    }
+    particles.length = writeIdx;
+
+    // Write visible particle positions and colours into the typed arrays
+    const posBuf = this.particlePosBuf;
+    const colBuf = this.particleColBuf;
+    let visibleCount = 0;
+
+    for (const p of particles) {
+      if (p.progress < 0) continue;                     // still in stagger delay
+      const fromPos = this.nodePos.get(p.fromNodeId);
+      const toPos = this.nodePos.get(p.toNodeId);
+      if (!fromPos || !toPos) continue;
+
+      const t = p.progress;
+      const idx = visibleCount * 3;
+      posBuf[idx]     = fromPos.x + (toPos.x - fromPos.x) * t;
+      posBuf[idx + 1] = fromPos.y + (toPos.y - fromPos.y) * t;
+      posBuf[idx + 2] = fromPos.z + (toPos.z - fromPos.z) * t;
+
+      colBuf[idx]     = p.color.r;
+      colBuf[idx + 1] = p.color.g;
+      colBuf[idx + 2] = p.color.b;
+
+      visibleCount++;
+      if (visibleCount >= MAX_PARTICLES) break;
+    }
+
+    this.particlePosAttr.needsUpdate = true;
+    this.particleColAttr.needsUpdate = true;
+    this.particlePoints.geometry.setDrawRange(0, visibleCount);
+    this.particlePoints.visible = visibleCount > 0;
+
+    // Detect transitions: dim edges when particles appear, restore when they deplete
+    const hasParticles = particles.length > 0;
+    if (hasParticles && !this.hadParticles) {
+      // Particles just started — dim background edges
+      this.edgeMaterial.opacity = Math.min(this.baseEdgeOpacity, 0.15);
+      this.writeEdgeColors(this.currentSelectedId);
+    } else if (!hasParticles && this.hadParticles) {
+      // Particles just ended — restore edges
+      this.edgeMaterial.opacity = this.baseEdgeOpacity;
+      this.writeEdgeColors(this.currentSelectedId);
+    }
+    this.hadParticles = hasParticles;
+  }
+
+  /** Create a soft-glow circle texture for particles. */
+  private static createParticleTexture(): THREE.Texture {
+    const size = 64;
+    const canvas = document.createElement('canvas');
+    canvas.width = size;
+    canvas.height = size;
+    const ctx = canvas.getContext('2d')!;
+    const gradient = ctx.createRadialGradient(size / 2, size / 2, 0, size / 2, size / 2, size / 2);
+    gradient.addColorStop(0, 'rgba(255,255,255,1)');
+    gradient.addColorStop(0.3, 'rgba(255,255,255,0.8)');
+    gradient.addColorStop(1, 'rgba(255,255,255,0)');
+    ctx.fillStyle = gradient;
+    ctx.fillRect(0, 0, size, size);
+    return new THREE.CanvasTexture(canvas);
+  }
+
   /** Write current node positions into the edge position buffer. */
   private writeEdgePositions() {
     const buf = this.edgePosBuf;
@@ -605,21 +775,19 @@ export class MeshRenderer {
     this.edgeMesh.geometry.setDrawRange(0, this.edgePairs.length * 2);
   }
 
-  /** Write per-vertex edge colours based on current selection and active packet hits. */
+  /** Write per-vertex edge colours based on current selection and active particles. */
   private writeEdgeColors(selectedId: string | null) {
     const buf = this.edgeColBuf;
-    const hits = this.packetHitSet;
-    const hasHits = hits.size > 0;
+    const hasParticles = this.particles.length > 0;
     let i = 0;
     for (const [srcId, tgtId] of this.edgePairs) {
       if (i + 6 > buf.length) break;
       let col: THREE.Color;
       if (selectedId) {
         col = (srcId === selectedId || tgtId === selectedId) ? COL_EDGE_SEL : COL_EDGE_DIM;
-      } else if (hasHits) {
-        // Dim non-trace edges so the red overlay stands out; keep trace edges at normal colour.
-        const edgeKey = srcId < tgtId ? `${srcId}<>${tgtId}` : `${tgtId}<>${srcId}`;
-        col = this.packetHitEdgeSet.has(edgeKey) ? COL_EDGE_DEFAULT : COL_EDGE_DIM;
+      } else if (hasParticles) {
+        // Dim all edges so the animated particles stand out
+        col = COL_EDGE_DIM;
       } else {
         col = COL_EDGE_DEFAULT;
       }
@@ -642,25 +810,23 @@ export class MeshRenderer {
       if (selectedPts.length > 0) {
         this.traceGeo.setPositions(selectedPts);
         this.traceMesh.visible = true;
-      } else if (!hasHits) {
+      } else {
         this.traceMesh.visible = false;
       }
       return;
     }
 
-    this.traceMat.color.set(0xef4444);
-    this.traceMat.linewidth = 4;
-    if (hasHits) {
-      this.writeTracePositions();
-    }
+    // No selection — hide trace overlay (particles handle packet visualization now)
+    this.traceMesh.visible = false;
   }
 
-  /** Rebuild the Line2 trace overlay from current nodePos for all packet-hit edges. */
-  private writeTracePositions() {
+  /** Rebuild the Line2 trace overlay for the currently selected node's edges. */
+  private writeSelectionTracePositions() {
+    const selectedId = this.currentSelectedId;
+    if (!selectedId) { this.traceMesh.visible = false; return; }
     const pts: number[] = [];
     for (const [srcId, tgtId] of this.edgePairs) {
-      const edgeKey = srcId < tgtId ? `${srcId}<>${tgtId}` : `${tgtId}<>${srcId}`;
-      if (!this.packetHitEdgeSet.has(edgeKey)) continue;
+      if (srcId !== selectedId && tgtId !== selectedId) continue;
       const sp = this.nodePos.get(srcId);
       const tp = this.nodePos.get(tgtId);
       if (!sp || !tp) continue;

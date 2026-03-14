@@ -97,8 +97,8 @@ export function NetworkGraph3DCustom({
   const selectedIdRef = useRef(selectedId);
   selectedIdRef.current = selectedId;
 
-  /** Current packet-path node ids — used by the inFlightPackets effect. */
-  const activePacketHitsRef = useRef(new Set<string>());
+  /** Track which packet IDs have already been spawned as particles. */
+  const spawnedPacketIdsRef = useRef(new Set<number>());
 
   // Stable ref for onSelect — so the renderer callback never goes stale when
   // App.tsx re-renders (e.g. isMobileViewport changes and recreates handleSelect).
@@ -389,39 +389,26 @@ export function NetworkGraph3DCustom({
     r.updateColors(simNodesRef.current, selectedId);
   }, [selectedId]);
 
-  // ---- Packet-path edge highlights ----
+  // ---- Animated packet particles ----
   useEffect(() => {
     const r = rendererRef.current;
     if (!r || !settings.animatePacketFlow || selectedId) {
-      if (activePacketHitsRef.current.size > 0) {
-        activePacketHitsRef.current = new Set();
-        r?.setPacketHits(activePacketHitsRef.current, new Set());
-      }
+      // Clear particles when animation is disabled or a node is selected
+      r?.clearParticles();
+      spawnedPacketIdsRef.current.clear();
       return;
     }
-    const now = Date.now();
-    const nextNodes = new Set<string>();
-    const nextEdges = new Set<string>();
+    // Spawn particles for any new packets we haven't seen yet
     for (const pkt of inFlightPackets) {
-      if (pkt.finishedAt < now || pkt.startedAt > now) continue;
-      for (const h of pkt.highlightedNodes) nextNodes.add(h);
-      for (const [from, to] of pkt.highlightedEdges) {
-        nextEdges.add(canonicalKey(from, to));
-      }
+      if (spawnedPacketIdsRef.current.has(pkt.id)) continue;
+      spawnedPacketIdsRef.current.add(pkt.id);
+      r.addParticles(pkt.highlightedEdges, pkt.packetType);
     }
-    const prev = activePacketHitsRef.current;
-    let changed = nextNodes.size !== prev.size;
-    if (!changed) {
-      for (const h of nextNodes) {
-        if (!prev.has(h)) { changed = true; break; }
-      }
+    // Prune spawned IDs that are no longer in the list
+    const currentIds = new Set(inFlightPackets.map(p => p.id));
+    for (const id of spawnedPacketIdsRef.current) {
+      if (!currentIds.has(id)) spawnedPacketIdsRef.current.delete(id);
     }
-    if (!changed) {
-      r.setPacketHits(nextNodes, nextEdges);
-      return;
-    }
-    activePacketHitsRef.current = nextNodes;
-    r.setPacketHits(nextNodes, nextEdges);
   }, [inFlightPackets, settings.animatePacketFlow, selectedId]);
 
   // ---- Orbit mode ----
